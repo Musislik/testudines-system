@@ -241,16 +241,16 @@
         - /opt/stacks
         - /opt/dockge
 
-    - name: Clone Apps repository to /tmp/apps-repo
+    - name: Clone Stacks repository to /tmp/stacks-repo
       git:
-        repo: "{{ apps_repo_url }}"
-        dest: /tmp/apps-repo
-        version: "{{ apps_repo_version }}"
+        repo: "{{ stacks_repo_url }}"
+        dest: /tmp/stacks-repo
+        version: "{{ stacks_repo_version }}"
         force: yes
         accept_hostkey: yes
 
     - name: Sync application stacks to /opt/stacks
-      command: rsync -av --delete --exclude='.env' --exclude='*.env' /tmp/apps-repo/stacks/ /opt/stacks/
+      command: rsync -av --delete --exclude='.env' --exclude='*.env' /tmp/stacks-repo/stacks/ /opt/stacks/
 
     - name: Inject Nextcloud .env configuration
       copy:
@@ -323,9 +323,9 @@
               restart: unless-stopped
               ports:
                 - "127.0.0.1:5001:5001"
-{% if tailscale_ip != '127.0.0.1' %}
+                {% if tailscale_ip != '127.0.0.1' %}
                 - "{{ tailscale_ip }}:5001:5001"
-{% endif %}
+                {% endif %}
               volumes:
                 - /var/run/docker.sock:/var/run/docker.sock
                 - ./data:/app/data

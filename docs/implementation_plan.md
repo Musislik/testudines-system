@@ -4,7 +4,7 @@
 * **Platform:** Proxmox VE (Virtual Environment)
 * **Management & Deployment:** Two-Repository Git Strategy + Bootstrap Script (Ansible local deployment mode).
   * **Repository 1 (`testudines-system`):** Infrastructure as Code (Proxmox host configuration, KVM VM provisioning via Cloud-Init, PBS/Rclone backups, and Ansible automation).
-  * **Repository 2 (`testudines-apps`):** Docker Compose stacks organized in a flat directory structure under `stacks/<stack-name>/compose.yaml` (directly mapping to `/opt/stacks/` in Dockge).
+  * **Repository 2 (`testudines-stacks`):** Docker Compose stacks organized in a flat directory structure under `stacks/<stack-name>/compose.yaml` (directly mapping to `/opt/stacks/` in Dockge).
 * **Rationale:** Maximizes hardware utilization and operational stability by running Docker inside a dedicated lightweight KVM Virtual Machine (Debian 12 Bookworm) with native `ext4` formatting and the standard Linux kernel `overlay2` storage driver, completely avoiding the known ZFS/LXC storage driver issues.
 * **Shared Configuration & Secrets Management:**
    * `testudines-system/ansible/vars.yml` serves as the Git-safe repository template containing variable definitions with placeholders (`YOUR-...`).
@@ -50,6 +50,6 @@ Using individual RAID 0 arrays to simulate direct disk access is highly discoura
   * **Gaming Servers:** Minecraft (port `25565`) and OpenTTD (port `3979`) run containerized and can be reached over Tailscale or via router port-forwarding for external players.
   * **Archived Stacks:** Legacy/redundant stacks (`hamachi`, `docker-tailscale`, `nginx-ingress`, `media-server`, `mopidy`, etc.) are retired to `/disabled` outside of Git.
 * **Docker & Compose Management:**
-  * Active compose stacks are maintained in `testudines-apps/stacks/` and synchronized to `/opt/stacks` via `rsync -av --delete --exclude='.env'`.
+  * Active compose stacks are maintained in `testudines-stacks/stacks/` and synchronized to `/opt/stacks` via `rsync -av --delete --exclude='.env'`.
   * Shared Docker bridge network `proxy-tier` connects services.
   * **Dockge** runs managing all stacks under `/opt/stacks`.

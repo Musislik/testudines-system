@@ -29,8 +29,8 @@ tailscale_extra_args: "--accept-dns=true"
 
 # Git Repositories
 system_repo_url: "https://github.com/USER/testudines-system.git"
-apps_repo_url: "https://github.com/USER/testudines-apps.git"
-apps_repo_version: "master"
+stacks_repo_url: "https://github.com/USER/testudines-stacks.git"
+stacks_repo_version: "master"
 
 # Application Secrets & Environments
 # Nextcloud (nextcloud-core)

@@ -63,7 +63,7 @@ Systém používá automatickou detekci přidělené Tailscale IP adresy pro str
 - Zkontroluje přítomnost privátního souboru `deploy/vars.yml`.
 - Spustí Ansible playbook s parametrem `-e @deploy/vars.yml`. **Sledovaný soubor `ansible/vars.yml` v Gitu se nepřepisuje**, takže pracovní strom repozitáře zůstává čistý a budoucí příkazy `git pull` nezpůsobí konflikt.
 - Vytvoří KVM virtuální stroj (Debian 12 Bookworm) s disky `scsi0` (OS), `scsi1` (data-sync pro zálohování) a `scsi2` (data-nosync bez zálohování).
-- Nainstaluje Docker CE, Tailscale, synchronizuje aplikační stacky z `testudines-apps` a spustí všechny kontejnery.
+- Nainstaluje Docker CE, Tailscale, synchronizuje aplikační stacky z `testudines-stacks` a spustí všechny kontejnery.
 
 ---
 

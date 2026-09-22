@@ -26,16 +26,16 @@ except ImportError:
 
 
 def find_project_root():
-    """Najde kořenový adresář projektu obsahující testudines-system i testudines-apps."""
+    """Najde kořenový adresář projektu obsahující testudines-system i testudines-stacks."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     # 1. Zkusíme vystoupat o úroveň výš (pokud je skript v testudines-system/scripts)
     parent = os.path.dirname(current_dir)
     grandparent = os.path.dirname(parent)
     
-    if os.path.isdir(os.path.join(grandparent, "testudines-system")) and os.path.isdir(os.path.join(grandparent, "testudines-apps")):
+    if os.path.isdir(os.path.join(grandparent, "testudines-system")) and os.path.isdir(os.path.join(grandparent, "testudines-stacks")):
         return grandparent
-    if os.path.isdir(os.path.join(parent, "testudines-system")) and os.path.isdir(os.path.join(parent, "testudines-apps")):
+    if os.path.isdir(os.path.join(parent, "testudines-system")) and os.path.isdir(os.path.join(parent, "testudines-stacks")):
         return parent
     if os.path.isdir(os.path.join(current_dir, "testudines-system")):
         return current_dir
@@ -46,12 +46,12 @@ def find_project_root():
 def main():
     root_dir = find_project_root()
     system_dir = os.path.join(root_dir, "testudines-system")
-    apps_dir = os.path.join(root_dir, "testudines-apps")
+    stacks_repo_dir = os.path.join(root_dir, "testudines-stacks")
 
     print(f"=== TESTUDINES CONFIGURATION VALIDATOR ===")
     print(f"Kořenový adresář: {root_dir}")
     print(f"System repozitář: {system_dir}")
-    print(f"Apps repozitář:   {apps_dir}\n")
+    print(f"Stacks repozitář: {stacks_repo_dir}\n")
 
     has_errors = False
 
@@ -64,7 +64,7 @@ def main():
         os.path.join(system_dir, "deploy", "vars.yml"),
     ]
 
-    stacks_dir = os.path.join(apps_dir, "stacks")
+    stacks_dir = os.path.join(stacks_repo_dir, "stacks")
     if os.path.isdir(stacks_dir):
         for stack_name in sorted(os.listdir(stacks_dir)):
             compose_file = os.path.join(stacks_dir, stack_name, "compose.yaml")
@@ -135,7 +135,7 @@ def main():
 
         jinja_vars = set(re.findall(r"\{\{\s*([a-zA-Z0-9_]+)", site_content))
         # Vyloučení vestavěných / smyčkových / dynamických proměnných
-        jinja_vars -= {"item", "qm_status", "compose_dirs", "compose_output", "apt_install_result", "tailscale_status", "tailscale_ip"}
+        jinja_vars -= {"item", "qm_status", "compose_dirs", "compose_output", "apt_install_result", "tailscale_status", "tailscale_ip", "tailscale_ip_cmd"}
 
         undefined_vars = jinja_vars - set(ansible_vars.keys())
         if undefined_vars:
