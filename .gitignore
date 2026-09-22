@@ -1,0 +1,16 @@
+# Ansible
+*.retry
+.vault_pass*
+deploy/vars.yml
+deploy/vars.yaml
+
+# Temporary & backup files
+*.bak
+*.backup
+*.tmp
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

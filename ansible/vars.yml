@@ -1,0 +1,67 @@
+---
+# Proxmox Storage settings
+proxmox_storage: "local-zfs"
+
+# Debian 12 Bookworm Generic Cloud Image
+debian_cloud_image_url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+debian_cloud_image_path: "/var/lib/vz/template/iso/debian-12-genericcloud-amd64.qcow2"
+
+# VM Settings (KVM Virtual Machine)
+vm_vmid: 200
+vm_name: "testudines-vm"
+vm_cores: 4
+vm_memory: 16384
+vm_ip: "10.0.1.226"
+vm_gw: "10.0.1.138"
+vm_dns: "10.0.1.138"
+vm_user: "debian"
+vm_password: "YOUR-VM-PASSWORD"
+vm_root_disk_size: "40G"
+vm_sync_disk_size: "100G"
+vm_nosync_disk_size: "250G"
+
+# Tailscale settings (Installed natively in VM OS)
+# IMPORTANT: Generate auth key as "Reusable" in Tailscale Admin Console (Settings -> Keys)
+tailscale_auth_key: "YOUR-TAILSCALE-AUTHKEY"
+tailscale_hostname: "testudines"
+tailscale_domain: "YOUR-TAILSCALE-DOMAIN.ts.net" # Full MagicDNS domain, e.g. testudines.tailxxxx.ts.net
+tailscale_extra_args: "--accept-dns=true"
+
+# Git Repositories
+system_repo_url: "https://github.com/USER/testudines-system.git"
+apps_repo_url: "https://github.com/USER/testudines-apps.git"
+apps_repo_version: "master"
+
+# Application Secrets & Environments
+# Nextcloud (nextcloud-core)
+nextcloud_mysql_root_password: "YOUR-MYSQL-ROOT-PASSWORD"
+nextcloud_mysql_password: "YOUR-MYSQL-PASSWORD"
+nextcloud_mysql_user: "nextcloud"
+nextcloud_mysql_database: "nextcloud"
+nextcloud_trusted_domains: "example.duckdns.org testudines 10.0.1.226 localhost"
+
+# Cloudflare Tunnel (cloudflared)
+cloudflare_tunnel_token: "YOUR-CLOUDFLARE-TUNNEL-TOKEN"
+
+# JDownloader
+jdownloader_username: "admin"
+jdownloader_password: "YOUR-JDOWNLOADER-PASSWORD"
+
+# Minecraft Server
+minecraft_motd: "A Minecraft Server"
+minecraft_ops: "admin"
+minecraft_level: "world"
+minecraft_memory: "10240M"
+
+# OpenTTD Server
+openttd_server_name: "Testudines OpenTTD Server"
+
+# Storage Mount Paths (Mapped outside Git repositories)
+nextcloud_data_dir: "/mnt/data-sync/nextcloud"
+nextcloud_db_dir: "/mnt/data-sync/nextcloud-db"
+nextcloud_avdb_dir: "/mnt/data-nosync/avdb"
+jdownloader_config_dir: "/mnt/data-sync/jdownloader-config"
+jdownloader_output_dir: "/mnt/data-nosync/avdb"
+minecraft_data_dir: "/mnt/data-sync/minecraft"
+openttd_data_dir: "/mnt/data-sync/openttd-server"
+webclient_config_dir: "/mnt/data-sync/web-client"

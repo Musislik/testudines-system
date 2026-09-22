@@ -1,0 +1,357 @@
+---
+- name: Provision Proxmox KVM Virtual Machine for Docker
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Check if Docker VM exists
+      command: "qm status {{ vm_vmid }}"
+      register: qm_status
+      failed_when: false
+      changed_when: false
+
+    - name: Download Debian 12 Generic Cloud Image if not present
+      get_url:
+        url: "{{ debian_cloud_image_url }}"
+        dest: "{{ debian_cloud_image_path }}"
+        mode: '0644'
+      when: qm_status.rc != 0
+
+    - name: Ensure root SSH key exists on Proxmox host
+      shell: ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa
+      args:
+        creates: /root/.ssh/id_rsa
+      when: qm_status.rc != 0
+
+    - name: Create KVM Virtual Machine
+      command: >
+        qm create {{ vm_vmid }}
+        --name {{ vm_name }}
+        --memory {{ vm_memory }}
+        --cores {{ vm_cores }}
+        --cpu host
+        --net0 virtio,bridge=vmbr0
+        --scsihw virtio-scsi-pci
+      when: qm_status.rc != 0
+
+    - name: Import Cloud Image disk to ZFS storage
+      command: "qm importdisk {{ vm_vmid }} {{ debian_cloud_image_path }} {{ proxmox_storage }}"
+      when: qm_status.rc != 0
+
+    - name: Attach imported root disk as scsi0
+      command: "qm set {{ vm_vmid }} --scsi0 {{ proxmox_storage }}:vm-{{ vm_vmid }}-disk-0,discard=on,ssd=1"
+      when: qm_status.rc != 0
+
+    - name: Resize root disk
+      command: "qm resize {{ vm_vmid }} scsi0 {{ vm_root_disk_size }}"
+      when: qm_status.rc != 0
+
+    - name: Configure Cloud-Init drive and VM settings
+      command: >
+        qm set {{ vm_vmid }}
+        --ide2 {{ proxmox_storage }}:cloudinit
+        --boot c --bootdisk scsi0
+        --serial0 socket --vga serial0
+        --agent enabled=1
+        --ciuser {{ vm_user }}
+        --cipassword "{{ vm_password }}"
+        --sshkeys /root/.ssh/id_rsa.pub
+        --ipconfig0 ip={{ vm_ip }}/24,gw={{ vm_gw }}
+        --nameserver {{ vm_dns }}
+      when: qm_status.rc != 0
+
+    - name: Attach persistent data-sync disk (scsi1)
+      command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
+      when: qm_status.rc != 0
+
+    - name: Attach non-backed-up data-nosync disk (scsi2)
+      command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
+      when: qm_status.rc != 0
+
+    - name: Start VM if newly created
+      command: "qm start {{ vm_vmid }}"
+      when: qm_status.rc != 0
+
+    - name: Ensure existing VM is started
+      command: "qm start {{ vm_vmid }}"
+      when: "qm_status.rc == 0 and 'status: stopped' in qm_status.stdout"
+
+    - name: Wait for SSH port 22 on VM
+      wait_for:
+        host: "{{ vm_ip }}"
+        port: 22
+        state: started
+        delay: 5
+        timeout: 180
+
+    - name: Add Docker VM to in-memory inventory
+      add_host:
+        name: "{{ vm_name }}"
+        ansible_host: "{{ vm_ip }}"
+        ansible_user: "{{ vm_user }}"
+        ansible_connection: ssh
+        ansible_become_password: "{{ vm_password }}"
+        ansible_ssh_private_key_file: /root/.ssh/id_rsa
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        groups: docker_vm
+
+- name: Provision Docker VM (Storage, Docker CE, Tailscale, Stacks)
+  hosts: docker_vm
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Wait for Cloud-Init to complete
+      command: cloud-init status --wait
+      changed_when: false
+
+    - name: Extra settle delay after Cloud-Init
+      pause:
+        seconds: 15
+
+    - name: Update apt cache and install prerequisites
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        name:
+          - qemu-guest-agent
+          - curl
+          - rsync
+          - git
+          - ca-certificates
+          - gnupg
+          - e2fsprogs
+        state: present
+      register: apt_install_result
+      retries: 5
+      delay: 10
+      until: apt_install_result is success
+
+    - name: Ensure qemu-guest-agent service is running
+      service:
+        name: qemu-guest-agent
+        state: started
+        enabled: yes
+
+    - name: Check and format /dev/sdb (data-sync) with ext4 and label
+      shell: |
+        if ! blkid -t LABEL=data-sync; then
+          mkfs.ext4 -F -L data-sync /dev/sdb
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Mount /mnt/data-sync using LABEL in /etc/fstab
+      mount:
+        path: /mnt/data-sync
+        src: LABEL=data-sync
+        fstype: ext4
+        opts: defaults,discard
+        state: mounted
+
+    - name: Check and format /dev/sdc (data-nosync) with ext4 and label
+      shell: |
+        if ! blkid -t LABEL=data-nosync; then
+          mkfs.ext4 -F -L data-nosync /dev/sdc
+        fi
+      args:
+        executable: /bin/bash
+
+    - name: Mount /mnt/data-nosync using LABEL in /etc/fstab
+      mount:
+        path: /mnt/data-nosync
+        src: LABEL=data-nosync
+        fstype: ext4
+        opts: defaults,discard
+        state: mounted
+
+    - name: Ensure data subdirectories exist with proper permissions
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.mode | default('0755') }}"
+      loop:
+        - { path: "{{ nextcloud_data_dir }}", owner: '33', group: '33', mode: '0750' }
+        - { path: "{{ nextcloud_db_dir }}", mode: '0770' }
+        - { path: "{{ jdownloader_config_dir }}", mode: '0777' }
+        - { path: "{{ minecraft_data_dir }}", mode: '0777' }
+        - { path: "{{ openttd_data_dir }}", mode: '0777' }
+        - { path: "{{ nextcloud_avdb_dir }}", mode: '0777' }
+        - { path: "{{ webclient_config_dir }}", owner: '1000', group: '1000', mode: '0755' }
+
+    - name: Install Docker CE via official script
+      shell: curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Add vm_user to docker group
+      user:
+        name: "{{ vm_user }}"
+        groups: docker
+        append: yes
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Tailscale
+      shell: curl -fsSL https://tailscale.com/install.sh | sh
+      args:
+        creates: /usr/bin/tailscale
+
+    - name: Authenticate Tailscale if auth key provided
+      command: "tailscale up --authkey={{ tailscale_auth_key }} --hostname={{ tailscale_hostname }} {{ tailscale_extra_args }}"
+      when: tailscale_auth_key | default('') | length > 0
+
+    - name: Wait and retrieve assigned Tailscale IPv4 address
+      command: tailscale ip -4
+      register: tailscale_ip_cmd
+      changed_when: false
+      until: tailscale_ip_cmd.rc == 0 and tailscale_ip_cmd.stdout.strip() | length > 0
+      retries: 5
+      delay: 2
+      when: tailscale_auth_key | default('') | length > 0
+
+    - name: Set dynamic Tailscale IP fact
+      set_fact:
+        tailscale_ip: "{{ tailscale_ip_cmd.stdout.strip() if (tailscale_auth_key | default('') | length > 0) else '127.0.0.1' }}"
+
+    - name: Configure Tailscale Serve for Nextcloud HTTPS (port 443 -> localhost:80)
+      command: tailscale serve --bg 80
+      when: tailscale_auth_key | default('') | length > 0
+
+    - name: Ensure shared proxy-tier Docker network exists
+      shell: docker network inspect proxy-tier >/dev/null 2>&1 || docker network create proxy-tier
+
+    - name: Ensure /opt/stacks and /opt/dockge directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /opt/stacks
+        - /opt/dockge
+
+    - name: Clone Apps repository to /tmp/apps-repo
+      git:
+        repo: "{{ apps_repo_url }}"
+        dest: /tmp/apps-repo
+        version: "{{ apps_repo_version }}"
+        force: yes
+        accept_hostkey: yes
+
+    - name: Sync application stacks to /opt/stacks
+      command: rsync -av --delete --exclude='.env' --exclude='*.env' /tmp/apps-repo/stacks/ /opt/stacks/
+
+    - name: Inject Nextcloud .env configuration
+      copy:
+        dest: /opt/stacks/nextcloud-core/.env
+        content: |
+          MYSQL_ROOT_PASSWORD={{ nextcloud_mysql_root_password }}
+          MYSQL_PASSWORD={{ nextcloud_mysql_password }}
+          MYSQL_DATABASE={{ nextcloud_mysql_database }}
+          MYSQL_USER={{ nextcloud_mysql_user }}
+          NEXTCLOUD_TRUSTED_DOMAINS={{ nextcloud_trusted_domains }} {{ tailscale_domain | default('') }} {{ tailscale_ip }}
+          NEXTCLOUD_OVERWRITE_CLI_URL=https://{{ tailscale_domain | default('localhost') }}
+          NEXTCLOUD_DATA_DIR={{ nextcloud_data_dir }}
+          NEXTCLOUD_DB_DIR={{ nextcloud_db_dir }}
+          NEXTCLOUD_AVDB_DIR={{ nextcloud_avdb_dir }}
+        mode: '0600'
+
+    - name: Inject Cloudflare Tunnel .env configuration
+      copy:
+        dest: /opt/stacks/cloudflared/.env
+        content: |
+          TUNNEL_TOKEN={{ cloudflare_tunnel_token }}
+        mode: '0600'
+
+    - name: Inject JDownloader .env configuration
+      copy:
+        dest: /opt/stacks/jdownloader/.env
+        content: |
+          WEB_AUTHENTICATION_USERNAME={{ jdownloader_username }}
+          WEB_AUTHENTICATION_PASSWORD={{ jdownloader_password }}
+          JDOWNLOADER_CONFIG_DIR={{ jdownloader_config_dir }}
+          JDOWNLOADER_OUTPUT_DIR={{ jdownloader_output_dir }}
+          TAILSCALE_IP={{ tailscale_ip }}
+        mode: '0600'
+
+    - name: Inject Minecraft .env configuration
+      copy:
+        dest: /opt/stacks/minecraft/.env
+        content: |
+          MOTD="{{ minecraft_motd }}"
+          OPS="{{ minecraft_ops }}"
+          LEVEL="{{ minecraft_level }}"
+          MEMORY="{{ minecraft_memory }}"
+          MINECRAFT_DATA_DIR={{ minecraft_data_dir }}
+        mode: '0600'
+
+    - name: Inject OpenTTD .env configuration
+      copy:
+        dest: /opt/stacks/openttd-server/.env
+        content: |
+          OPENTTD_SERVER_NAME="{{ openttd_server_name }}"
+          OPENTTD_DATA_DIR={{ openttd_data_dir }}
+        mode: '0600'
+
+    - name: Inject Web-client .env configuration
+      copy:
+        dest: /opt/stacks/web-client/.env
+        content: |
+          TAILSCALE_IP={{ tailscale_ip }}
+          WEBCLIENT_CONFIG_DIR={{ webclient_config_dir }}
+        mode: '0600'
+
+    - name: Deploy Dockge compose file
+      copy:
+        dest: /opt/dockge/compose.yaml
+        content: |
+          version: "3.8"
+          services:
+            dockge:
+              image: louislam/dockge:1
+              restart: unless-stopped
+              ports:
+                - "127.0.0.1:5001:5001"
+{% if tailscale_ip != '127.0.0.1' %}
+                - "{{ tailscale_ip }}:5001:5001"
+{% endif %}
+              volumes:
+                - /var/run/docker.sock:/var/run/docker.sock
+                - ./data:/app/data
+                - /opt/stacks:/opt/stacks
+              environment:
+                - DOCKGE_STACKS_DIR=/opt/stacks
+
+    - name: Start Dockge service using Docker Compose
+      command: docker compose up -d
+      args:
+        chdir: /opt/dockge
+
+    - name: Find all active compose stacks
+      find:
+        paths: /opt/stacks
+        file_type: directory
+      register: compose_dirs
+
+    - name: Start or update all Docker Compose stacks
+      command: docker compose up -d --remove-orphans
+      args:
+        chdir: "{{ item.path }}"
+      loop: "{{ compose_dirs.files }}"
+      register: compose_output
+      changed_when: >
+        'Started' in compose_output.stdout or
+        'Created' in compose_output.stdout or
+        'Recreated' in compose_output.stdout or
+        'Pulled' in compose_output.stdout
