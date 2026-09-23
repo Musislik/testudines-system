@@ -4,9 +4,15 @@ set -e
 echo "Starting Proxmox Home Server Bootstrap (VM Architecture)..."
 
 # Configure Proxmox VE repository (switch from enterprise to no-subscription if necessary)
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-    echo "Disabling pve-enterprise repository..."
-    mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.bak 2>/dev/null || true
+echo "Disabling enterprise repositories (PVE and Ceph)..."
+for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    if [ -f "$f" ] && grep -q "enterprise.proxmox.com" "$f"; then
+        echo " - Disabling $f..."
+        mv -f "$f" "$f.bak" 2>/dev/null || true
+    fi
+done
+if [ -f /etc/apt/sources.list ] && grep -q "enterprise.proxmox.com" /etc/apt/sources.list; then
+    sed -i 's|^\([^#].*enterprise\.proxmox\.com\)|#\1|' /etc/apt/sources.list 2>/dev/null || true
 fi
 
 PVE_CODENAME="bookworm"
