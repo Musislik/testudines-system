@@ -36,12 +36,20 @@ apt-get install -y git curl rsync ansible python3
 REPO_URL="https://github.com/musislik/testudines-system.git"
 CLONE_DIR="/opt/testudines-system"
 
-if [ -d "$CLONE_DIR" ]; then
-    echo "Directory $CLONE_DIR already exists. Pulling latest changes..."
-    cd $CLONE_DIR && git pull
+if [ -d "$CLONE_DIR/.git" ]; then
+    echo "Directory $CLONE_DIR already exists as a git repository. Pulling latest changes..."
+    cd "$CLONE_DIR" && git pull
+elif [ -d "$CLONE_DIR" ]; then
+    echo "Directory $CLONE_DIR exists without git metadata. Fetching full repository..."
+    TMP_CLONE="/tmp/testudines-clone-$$"
+    rm -rf "$TMP_CLONE"
+    git clone "$REPO_URL" "$TMP_CLONE"
+    cp -r -n "$TMP_CLONE"/* "$CLONE_DIR"/ 2>/dev/null || true
+    cp -r "$TMP_CLONE"/.git "$CLONE_DIR"/
+    rm -rf "$TMP_CLONE"
 else
     echo "Cloning repository $REPO_URL..."
-    git clone $REPO_URL $CLONE_DIR
+    git clone "$REPO_URL" "$CLONE_DIR"
 fi
 
 # Locate script directory and local vars.yml
