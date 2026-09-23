@@ -3,6 +3,24 @@ set -e
 
 echo "Starting Proxmox Home Server Bootstrap (VM Architecture)..."
 
+# Configure Proxmox VE repository (switch from enterprise to no-subscription if necessary)
+if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+    echo "Disabling pve-enterprise repository..."
+    mv /etc/apt/sources.list.d/pve-enterprise.list /etc/apt/sources.list.d/pve-enterprise.list.bak 2>/dev/null || true
+fi
+
+PVE_CODENAME="bookworm"
+if [ -f /etc/os-release ]; then
+    DETECTED_CODENAME=$(grep -E '^VERSION_CODENAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
+    [ -n "$DETECTED_CODENAME" ] && PVE_CODENAME="$DETECTED_CODENAME"
+fi
+
+NO_SUB_LIST="/etc/apt/sources.list.d/pve-no-subscription.list"
+if [ ! -f "$NO_SUB_LIST" ] && [ ! -f /etc/apt/sources.list.d/pve-install-repo.list ]; then
+    echo "Configuring Proxmox VE no-subscription repository for $PVE_CODENAME..."
+    echo "deb http://download.proxmox.com/debian/pve $PVE_CODENAME pve-no-subscription" > "$NO_SUB_LIST"
+fi
+
 # Update and install required packages on Proxmox VE host
 export DEBIAN_FRONTEND=noninteractive
 apt-get update

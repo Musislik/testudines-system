@@ -134,8 +134,13 @@ def main():
             site_content = f.read()
 
         jinja_vars = set(re.findall(r"\{\{\s*([a-zA-Z0-9_]+)", site_content))
-        # Vyloučení vestavěných / smyčkových / dynamických proměnných
-        jinja_vars -= {"item", "qm_status", "compose_dirs", "compose_output", "apt_install_result", "tailscale_status", "tailscale_ip", "tailscale_ip_cmd"}
+        # Vyloučení vestavěných / smyčkových / dynamických a autodetekovaných proměnných
+        jinja_vars -= {
+            "item", "qm_status", "compose_dirs", "compose_output", "apt_install_result",
+            "tailscale_status", "tailscale_ip", "tailscale_ip_cmd",
+            "proxmox_storage", "vm_gw", "vm_dns", "detected_storages",
+            "detected_gw", "detected_dns", "imported_disk_vol"
+        }
 
         undefined_vars = jinja_vars - set(ansible_vars.keys())
         if undefined_vars:

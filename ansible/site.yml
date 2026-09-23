@@ -13,6 +13,51 @@
       failed_when: false
       changed_when: false
 
+    - name: Detect available Proxmox storage pools for VM disks
+      shell: pvesm status -content images | awk 'NR>1 && $3=="active" {print $1}'
+      register: detected_storages
+      changed_when: false
+      when: (proxmox_storage is not defined) or (proxmox_storage == "auto")
+
+    - name: Select optimal Proxmox storage pool
+      set_fact:
+        proxmox_storage: >-
+          {{
+            'local-zfs' if 'local-zfs' in detected_storages.stdout_lines else
+            ('local-lvm' if 'local-lvm' in detected_storages.stdout_lines else
+            detected_storages.stdout_lines[0])
+          }}
+      when: (proxmox_storage is not defined) or (proxmox_storage == "auto")
+
+    - name: Detect host default gateway
+      shell: ip route show default | awk '{print $3}' | head -n1
+      register: detected_gw
+      changed_when: false
+      when: (vm_gw is not defined) or (vm_gw == "auto")
+
+    - name: Set vm_gw fact
+      set_fact:
+        vm_gw: "{{ detected_gw.stdout.strip() }}"
+      when: (vm_gw is not defined) or (vm_gw == "auto")
+
+    - name: Detect host DNS nameserver
+      shell: awk '/^nameserver/ && $2 !~ /^127\./ {print $2; exit}' /etc/resolv.conf
+      register: detected_dns
+      changed_when: false
+      when: (vm_dns is not defined) or (vm_dns == "auto")
+
+    - name: Set vm_dns fact
+      set_fact:
+        vm_dns: "{{ detected_dns.stdout.strip() if (detected_dns.stdout is defined and detected_dns.stdout.strip() | length > 0) else vm_gw }}"
+      when: (vm_dns is not defined) or (vm_dns == "auto")
+
+    - name: Ensure template directory exists
+      file:
+        path: "{{ debian_cloud_image_path | dirname }}"
+        state: directory
+        mode: '0755'
+      when: qm_status.rc != 0
+
     - name: Download Debian 12 Generic Cloud Image if not present
       get_url:
         url: "{{ debian_cloud_image_url }}"
@@ -37,12 +82,18 @@
         --scsihw virtio-scsi-pci
       when: qm_status.rc != 0
 
-    - name: Import Cloud Image disk to ZFS storage
+    - name: Import Cloud Image disk to Proxmox storage
       command: "qm importdisk {{ vm_vmid }} {{ debian_cloud_image_path }} {{ proxmox_storage }}"
       when: qm_status.rc != 0
 
+    - name: Retrieve imported disk identifier from VM config
+      shell: "qm config {{ vm_vmid }} | grep '^unused[0-9]*:' | head -n1 | awk '{print $2}'"
+      register: imported_disk_vol
+      changed_when: false
+      when: qm_status.rc != 0
+
     - name: Attach imported root disk as scsi0
-      command: "qm set {{ vm_vmid }} --scsi0 {{ proxmox_storage }}:vm-{{ vm_vmid }}-disk-0,discard=on,ssd=1"
+      command: "qm set {{ vm_vmid }} --scsi0 {{ imported_disk_vol.stdout.strip() }},discard=on,ssd=1"
       when: qm_status.rc != 0
 
     - name: Resize root disk

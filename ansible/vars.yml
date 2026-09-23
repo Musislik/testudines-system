@@ -1,6 +1,7 @@
 ---
 # Proxmox Storage settings
-proxmox_storage: "local-zfs"
+# Volitelné: ponechte zakomentované pro automatickou detekci aktivního úložiště (local-zfs -> local-lvm -> první aktivní)
+# proxmox_storage: "local-zfs"
 
 # Debian 12 Bookworm Generic Cloud Image
 debian_cloud_image_url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
@@ -12,8 +13,9 @@ vm_name: "testudines-vm"
 vm_cores: 4
 vm_memory: 16384
 vm_ip: "10.0.1.226"
-vm_gw: "10.0.1.138"
-vm_dns: "10.0.1.138"
+# Volitelné: ponechte zakomentované pro automatickou detekci brány a DNS z Proxmox hostitele
+# vm_gw: "10.0.1.138"
+# vm_dns: "10.0.1.138"
 vm_user: "debian"
 vm_password: "YOUR-VM-PASSWORD"
 vm_root_disk_size: "40G"
