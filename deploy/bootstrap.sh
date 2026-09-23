@@ -58,15 +58,24 @@ fi
 
 # Locate script directory and local vars.yml
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_VARS="$SCRIPT_DIR/vars.yml"
-EXTRA_VARS_ARG=""
+LOCAL_VARS=""
+for candidate in \
+    "$SCRIPT_DIR/vars.yml" \
+    "$SCRIPT_DIR/deploy/vars.yml" \
+    "$CLONE_DIR/deploy/vars.yml" \
+    "$CLONE_DIR/vars.yml"; do
+    if [ -f "$candidate" ]; then
+        LOCAL_VARS="$candidate"
+        break
+    fi
+done
 
-# Check for private deployment variables
-if [ -f "$LOCAL_VARS" ]; then
+EXTRA_VARS_ARG=""
+if [ -n "$LOCAL_VARS" ]; then
     echo "Using private deployment variables from $LOCAL_VARS..."
     EXTRA_VARS_ARG="-e @$LOCAL_VARS"
 else
-    echo "Notice: Local $LOCAL_VARS not found, proceeding with repository template vars.yml"
+    echo "Notice: Private vars.yml not found, proceeding with repository template vars.yml"
 fi
 
 # Run the Ansible playbook locally on the Proxmox host

@@ -96,12 +96,30 @@
         creates: /root/.ssh/id_rsa
       when: not vm_is_valid
 
+    - name: Detect available host CPU cores
+      shell: nproc
+      register: host_cores
+      changed_when: false
+
+    - name: Determine effective VM cores
+      set_fact:
+        effective_vm_cores: "{{ [ [ (vm_cores | default(2) | int), (host_cores.stdout | int) ] | min, 1 ] | max }}"
+
+    - name: Detect available host total memory (MB)
+      shell: awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
+      register: host_mem_mb
+      changed_when: false
+
+    - name: Determine effective VM memory (MB)
+      set_fact:
+        effective_vm_memory: "{{ [ (vm_memory | default(4096) | int), ((host_mem_mb.stdout | int) * 0.8) | int ] | min }}"
+
     - name: Create KVM Virtual Machine
       command: >
         qm create {{ vm_vmid }}
         --name {{ vm_name }}
-        --memory {{ vm_memory }}
-        --cores {{ vm_cores }}
+        --memory {{ effective_vm_memory | default(vm_memory) }}
+        --cores {{ effective_vm_cores | default(vm_cores) }}
         --cpu host
         --net0 virtio,bridge=vmbr0
         --scsihw virtio-scsi-pci
@@ -150,6 +168,10 @@
     - name: Start VM if newly created
       command: "qm start {{ vm_vmid }}"
       when: not vm_is_valid
+
+    - name: Ensure existing VM CPU cores and memory match host capability
+      command: "qm set {{ vm_vmid }} --cores {{ effective_vm_cores }} --memory {{ effective_vm_memory }}"
+      when: "vm_is_valid and 'status: stopped' in qm_status.stdout"
 
     - name: Ensure existing VM is started
       command: "qm start {{ vm_vmid }}"
