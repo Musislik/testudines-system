@@ -413,23 +413,22 @@
     - name: Deploy Dockge compose file
       copy:
         dest: /opt/dockge/compose.yaml
-        content: |
+        content: "{{ dockge_compose | to_nice_yaml(indent=2) }}"
+        mode: '0644'
+      vars:
+        dockge_compose:
           version: "3.8"
           services:
             dockge:
-              image: louislam/dockge:1
-              restart: unless-stopped
-              ports:
-                - "127.0.0.1:5001:5001"
-                {% if tailscale_ip != '127.0.0.1' %}
-                - "{{ tailscale_ip }}:5001:5001"
-                {% endif %}
+              image: "louislam/dockge:1"
+              restart: "unless-stopped"
+              ports: "{{ ['127.0.0.1:5001:5001'] + ([tailscale_ip + ':5001:5001'] if (tailscale_ip != '127.0.0.1') else []) }}"
               volumes:
-                - /var/run/docker.sock:/var/run/docker.sock
-                - ./data:/app/data
-                - /opt/stacks:/opt/stacks
+                - "/var/run/docker.sock:/var/run/docker.sock"
+                - "./data:/app/data"
+                - "/opt/stacks:/opt/stacks"
               environment:
-                - DOCKGE_STACKS_DIR=/opt/stacks
+                - "DOCKGE_STACKS_DIR=/opt/stacks"
 
     - name: Start Dockge service using Docker Compose
       command: docker compose up -d
