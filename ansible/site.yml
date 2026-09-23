@@ -324,7 +324,7 @@
         tailscale_ip: "{{ tailscale_ip_cmd.stdout.strip() if (tailscale_auth_key | default('') | length > 0) else '127.0.0.1' }}"
 
     - name: Configure Tailscale Serve for Nextcloud HTTPS (port 443 -> localhost:80)
-      command: tailscale serve --bg 80
+      command: tailscale serve --yes --bg 80
       when: tailscale_auth_key | default('') | length > 0
 
     - name: Ensure shared proxy-tier Docker network exists
