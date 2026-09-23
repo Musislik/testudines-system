@@ -13,63 +13,88 @@
       failed_when: false
       changed_when: false
 
+    - name: Inspect VM configuration if VM exists
+      command: "qm config {{ vm_vmid }}"
+      register: qm_config
+      failed_when: false
+      changed_when: false
+      when: qm_status.rc == 0
+
+    - name: Determine if VM is already valid and fully provisioned
+      set_fact:
+        vm_is_valid: "{{ qm_status.rc == 0 and (qm_config.stdout is defined) and ('scsi0:' in qm_config.stdout) }}"
+
+    - name: Stop incomplete or broken VM if running
+      command: "qm stop {{ vm_vmid }} --skiplock 1"
+      failed_when: false
+      changed_when: false
+      when:
+        - qm_status.rc == 0
+        - not vm_is_valid
+
+    - name: Automatically clean up incomplete or broken VM from previous failed run
+      command: "qm destroy {{ vm_vmid }} --purge"
+      when:
+        - qm_status.rc == 0
+        - not vm_is_valid
+
     - name: Detect available Proxmox storage pools for VM disks
       shell: pvesm status -content images | awk 'NR>1 && $3=="active" {print $1}'
       register: detected_storages
       changed_when: false
-      when: (proxmox_storage is not defined) or (proxmox_storage == "auto")
+      when: (not vm_is_valid) and ((proxmox_storage is not defined) or (proxmox_storage == "auto"))
 
     - name: Select optimal Proxmox storage pool
       set_fact:
         proxmox_storage: >-
           {{
-            'local-zfs' if 'local-zfs' in detected_storages.stdout_lines else
-            ('local-lvm' if 'local-lvm' in detected_storages.stdout_lines else
-            detected_storages.stdout_lines[0])
+            'local-zfs' if (detected_storages.stdout_lines is defined and 'local-zfs' in detected_storages.stdout_lines) else
+            ('local-lvm' if (detected_storages.stdout_lines is defined and 'local-lvm' in detected_storages.stdout_lines) else
+            (detected_storages.stdout_lines[0] if (detected_storages.stdout_lines is defined and detected_storages.stdout_lines | length > 0) else 'local'))
           }}
-      when: (proxmox_storage is not defined) or (proxmox_storage == "auto")
+      when: (not vm_is_valid) and ((proxmox_storage is not defined) or (proxmox_storage == "auto"))
 
     - name: Detect host default gateway
       shell: ip route show default | awk '{print $3}' | head -n1
       register: detected_gw
       changed_when: false
-      when: (vm_gw is not defined) or (vm_gw == "auto")
+      when: (not vm_is_valid) and ((vm_gw is not defined) or (vm_gw == "auto"))
 
     - name: Set vm_gw fact
       set_fact:
         vm_gw: "{{ detected_gw.stdout.strip() }}"
-      when: (vm_gw is not defined) or (vm_gw == "auto")
+      when: (not vm_is_valid) and ((vm_gw is not defined) or (vm_gw == "auto"))
 
     - name: Detect host DNS nameserver
       shell: awk '/^nameserver/ && $2 !~ /^127\./ {print $2; exit}' /etc/resolv.conf
       register: detected_dns
       changed_when: false
-      when: (vm_dns is not defined) or (vm_dns == "auto")
+      when: (not vm_is_valid) and ((vm_dns is not defined) or (vm_dns == "auto"))
 
     - name: Set vm_dns fact
       set_fact:
         vm_dns: "{{ detected_dns.stdout.strip() if (detected_dns.stdout is defined and detected_dns.stdout.strip() | length > 0) else vm_gw }}"
-      when: (vm_dns is not defined) or (vm_dns == "auto")
+      when: (not vm_is_valid) and ((vm_dns is not defined) or (vm_dns == "auto"))
 
     - name: Ensure template directory exists
       file:
         path: "{{ debian_cloud_image_path | dirname }}"
         state: directory
         mode: '0755'
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Download Debian 12 Generic Cloud Image if not present
       get_url:
         url: "{{ debian_cloud_image_url }}"
         dest: "{{ debian_cloud_image_path }}"
         mode: '0644'
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Ensure root SSH key exists on Proxmox host
       shell: ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa
       args:
         creates: /root/.ssh/id_rsa
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Create KVM Virtual Machine
       command: >
@@ -80,25 +105,25 @@
         --cpu host
         --net0 virtio,bridge=vmbr0
         --scsihw virtio-scsi-pci
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Import Cloud Image disk to Proxmox storage
       command: "qm importdisk {{ vm_vmid }} {{ debian_cloud_image_path }} {{ proxmox_storage }}"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Retrieve imported disk identifier from VM config
       shell: "qm config {{ vm_vmid }} | grep '^unused[0-9]*:' | head -n1 | awk '{print $2}'"
       register: imported_disk_vol
       changed_when: false
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Attach imported root disk as scsi0
       command: "qm set {{ vm_vmid }} --scsi0 {{ imported_disk_vol.stdout.strip() }},discard=on,ssd=1"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Resize root disk
       command: "qm resize {{ vm_vmid }} scsi0 {{ vm_root_disk_size }}"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Configure Cloud-Init drive and VM settings
       command: >
@@ -112,23 +137,23 @@
         --sshkeys /root/.ssh/id_rsa.pub
         --ipconfig0 ip={{ vm_ip }}/24,gw={{ vm_gw }}
         --nameserver {{ vm_dns }}
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Attach persistent data-sync disk (scsi1)
       command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Attach non-backed-up data-nosync disk (scsi2)
       command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Start VM if newly created
       command: "qm start {{ vm_vmid }}"
-      when: qm_status.rc != 0
+      when: not vm_is_valid
 
     - name: Ensure existing VM is started
       command: "qm start {{ vm_vmid }}"
-      when: "qm_status.rc == 0 and 'status: stopped' in qm_status.stdout"
+      when: "vm_is_valid and 'status: stopped' in qm_status.stdout"
 
     - name: Wait for SSH port 22 on VM
       wait_for:

@@ -34,22 +34,26 @@ apt-get install -y git curl rsync ansible python3
 
 # Clone the configuration repository
 REPO_URL="https://github.com/musislik/testudines-system.git"
+REPO_BRANCH="${DEPLOY_BRANCH:-deploy-testing}"
 CLONE_DIR="/opt/testudines-system"
 
 if [ -d "$CLONE_DIR/.git" ]; then
-    echo "Directory $CLONE_DIR already exists as a git repository. Pulling latest changes..."
-    cd "$CLONE_DIR" && git pull
+    echo "Directory $CLONE_DIR already exists as a git repository. Syncing branch $REPO_BRANCH..."
+    cd "$CLONE_DIR"
+    git fetch origin
+    git checkout -B "$REPO_BRANCH" "origin/$REPO_BRANCH" 2>/dev/null || git checkout "$REPO_BRANCH" 2>/dev/null || true
+    git pull origin "$REPO_BRANCH" 2>/dev/null || git pull
 elif [ -d "$CLONE_DIR" ]; then
-    echo "Directory $CLONE_DIR exists without git metadata. Fetching full repository..."
+    echo "Directory $CLONE_DIR exists without git metadata. Fetching full repository ($REPO_BRANCH)..."
     TMP_CLONE="/tmp/testudines-clone-$$"
     rm -rf "$TMP_CLONE"
-    git clone "$REPO_URL" "$TMP_CLONE"
+    git clone -b "$REPO_BRANCH" "$REPO_URL" "$TMP_CLONE" 2>/dev/null || git clone "$REPO_URL" "$TMP_CLONE"
     cp -r -n "$TMP_CLONE"/* "$CLONE_DIR"/ 2>/dev/null || true
     cp -r "$TMP_CLONE"/.git "$CLONE_DIR"/
     rm -rf "$TMP_CLONE"
 else
-    echo "Cloning repository $REPO_URL..."
-    git clone "$REPO_URL" "$CLONE_DIR"
+    echo "Cloning repository $REPO_URL ($REPO_BRANCH)..."
+    git clone -b "$REPO_BRANCH" "$REPO_URL" "$CLONE_DIR" 2>/dev/null || git clone "$REPO_URL" "$CLONE_DIR"
 fi
 
 # Locate script directory and local vars.yml
