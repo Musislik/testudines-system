@@ -358,6 +358,9 @@
           MYSQL_PASSWORD={{ nextcloud_mysql_password }}
           MYSQL_DATABASE={{ nextcloud_mysql_database }}
           MYSQL_USER={{ nextcloud_mysql_user }}
+          MYSQL_INNODB_BUFFER_POOL_SIZE={{ nextcloud_mysql_innodb_buffer_pool_size }}
+          MYSQL_INNODB_LOG_FILE_SIZE={{ nextcloud_mysql_innodb_log_file_size }}
+          MYSQL_INNODB_FLUSH_METHOD={{ nextcloud_mysql_innodb_flush_method }}
           NEXTCLOUD_TRUSTED_DOMAINS={{ nextcloud_trusted_domains }} {{ tailscale_domain | default('') }} {{ tailscale_ip }}
           NEXTCLOUD_OVERWRITE_CLI_URL=https://{{ tailscale_domain | default('localhost') }}
           NEXTCLOUD_DATA_DIR={{ nextcloud_data_dir }}

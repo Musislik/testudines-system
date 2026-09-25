@@ -40,6 +40,9 @@ nextcloud_mysql_root_password: "YOUR-MYSQL-ROOT-PASSWORD"
 nextcloud_mysql_password: "YOUR-MYSQL-PASSWORD"
 nextcloud_mysql_user: "nextcloud"
 nextcloud_mysql_database: "nextcloud"
+nextcloud_mysql_innodb_buffer_pool_size: "1G"
+nextcloud_mysql_innodb_log_file_size: "256M"
+nextcloud_mysql_innodb_flush_method: "O_DIRECT"
 nextcloud_trusted_domains: "example.duckdns.org testudines 10.0.1.226 localhost"
 
 # Cloudflare Tunnel (cloudflared)
