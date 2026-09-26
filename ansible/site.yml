@@ -22,7 +22,7 @@
 
     - name: Determine if VM is already valid and fully provisioned
       set_fact:
-        vm_is_valid: "{{ qm_status.rc == 0 and (qm_config.stdout is defined) and ('scsi0:' in qm_config.stdout) }}"
+        vm_is_valid: "{{ qm_status.rc == 0 and (qm_config.stdout is defined) and ('scsi0:' in qm_config.stdout) and not (vm_force_recreate | default(false) | bool) }}"
 
     - name: Stop incomplete or broken VM if running
       command: "qm stop {{ vm_vmid }} --skiplock 1"
@@ -65,23 +65,23 @@
       shell: ip route show default | awk '{print $3}' | head -n1
       register: detected_gw
       changed_when: false
-      when: (not vm_is_valid) and ((vm_gw is not defined) or (vm_gw == "auto"))
+      when: (vm_gw is not defined) or (vm_gw == "auto")
 
     - name: Set vm_gw fact
       set_fact:
         vm_gw: "{{ detected_gw.stdout.strip() }}"
-      when: (not vm_is_valid) and ((vm_gw is not defined) or (vm_gw == "auto"))
+      when: (vm_gw is not defined) or (vm_gw == "auto")
 
     - name: Detect host DNS nameserver
       shell: awk '/^nameserver/ && $2 !~ /^127\./ {print $2; exit}' /etc/resolv.conf
       register: detected_dns
       changed_when: false
-      when: (not vm_is_valid) and ((vm_dns is not defined) or (vm_dns == "auto"))
+      when: (vm_dns is not defined) or (vm_dns == "auto")
 
     - name: Set vm_dns fact
       set_fact:
         vm_dns: "{{ detected_dns.stdout.strip() if (detected_dns.stdout is defined and detected_dns.stdout.strip() | length > 0) else vm_gw }}"
-      when: (not vm_is_valid) and ((vm_dns is not defined) or (vm_dns == "auto"))
+      when: (vm_dns is not defined) or (vm_dns == "auto")
 
     - name: Ensure template directory exists
       file:
@@ -166,23 +166,87 @@
 
     - name: Attach persistent data-sync disk (scsi1)
       command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_sync_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
-      when: not vm_is_valid
+      when: (not vm_is_valid) or (qm_config.stdout is defined and 'scsi1:' not in qm_config.stdout)
 
     - name: Attach non-backed-up data-nosync disk (scsi2)
       command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_nosync_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
-      when: not vm_is_valid
+      when: (not vm_is_valid) or (qm_config.stdout is defined and 'scsi2:' not in qm_config.stdout)
 
-    - name: Start VM if newly created
+    - name: Test if SSH port 22 is currently responsive on VM
+      wait_for:
+        host: "{{ vm_ip }}"
+        port: 22
+        state: started
+        timeout: 3
+      register: ssh_quick_check
+      failed_when: false
+      when:
+        - vm_is_valid
+        - "'status: running' in qm_status.stdout"
+
+    - name: Detect if existing VM configuration or network differs from vars
+      set_fact:
+        vm_config_outdated: >-
+          {{
+            vm_is_valid and (
+              (('ip=' + vm_ip + '/') not in qm_config.stdout) or
+              (('gw=' + vm_gw) not in qm_config.stdout) or
+              (vm_dns is defined and ('nameserver: ' + vm_dns) not in qm_config.stdout) or
+              ('cores: ' + (effective_vm_cores | string)) not in qm_config.stdout or
+              ('memory: ' + (effective_vm_memory | string)) not in qm_config.stdout or
+              (ssh_quick_check is defined and (ssh_quick_check.failed | default(false)))
+            )
+          }}
+
+    - name: Update existing VM Cloud-Init and hardware configuration
+      command: >
+        qm set {{ vm_vmid }}
+        --agent enabled=1
+        --cores {{ effective_vm_cores }}
+        --memory {{ effective_vm_memory }}
+        --ciuser {{ vm_user }}
+        --cipassword "{{ vm_password }}"
+        --sshkeys /root/.ssh/id_rsa.pub
+        --ipconfig0 ip={{ vm_ip }}/24,gw={{ vm_gw }}
+        --nameserver {{ vm_dns }}
+      when:
+        - vm_is_valid
+        - vm_config_outdated | default(false)
+
+    - name: Clean Cloud-Init state inside VM before restart if guest agent is responsive
+      command: "qm guest exec {{ vm_vmid }} -- cloud-init clean"
+      failed_when: false
+      changed_when: false
+      when:
+        - vm_is_valid
+        - vm_config_outdated | default(false)
+        - "'status: running' in qm_status.stdout"
+
+    - name: Stop running VM to apply updated configuration
+      command: "qm stop {{ vm_vmid }}"
+      when:
+        - vm_is_valid
+        - vm_config_outdated | default(false)
+        - "'status: running' in qm_status.stdout"
+
+    - name: Wait for VM to stop completely
+      command: "qm status {{ vm_vmid }}"
+      register: qm_stop_check
+      until: "'status: stopped' in qm_stop_check.stdout"
+      retries: 30
+      delay: 2
+      changed_when: false
+      when:
+        - vm_is_valid
+        - vm_config_outdated | default(false)
+        - "'status: running' in qm_status.stdout"
+
+    - name: Ensure VM is started
       command: "qm start {{ vm_vmid }}"
-      when: not vm_is_valid
-
-    - name: Ensure existing VM CPU cores and memory match host capability
-      command: "qm set {{ vm_vmid }} --cores {{ effective_vm_cores }} --memory {{ effective_vm_memory }}"
-      when: "vm_is_valid and 'status: stopped' in qm_status.stdout"
-
-    - name: Ensure existing VM is started
-      command: "qm start {{ vm_vmid }}"
-      when: "vm_is_valid and 'status: stopped' in qm_status.stdout"
+      when: >
+        (not vm_is_valid) or
+        (vm_config_outdated | default(false)) or
+        (qm_status.stdout is defined and 'status: stopped' in qm_status.stdout)
 
     - name: Wait for SSH port 22 on VM
       wait_for:

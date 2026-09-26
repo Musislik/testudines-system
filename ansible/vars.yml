@@ -25,6 +25,7 @@ vm_password: "YOUR-VM-PASSWORD"
 vm_root_disk_size: "40G"
 vm_sync_disk_size: "100G"
 vm_nosync_disk_size: "250G"
+# vm_force_recreate: false # Nastavte na true, pokud chcete smazat a znovu čistě vytvořit celou VM
 
 # Tailscale settings (Installed natively in VM OS)
 # IMPORTANT: Generate auth key as "Reusable" in Tailscale Admin Console (Settings -> Keys)
