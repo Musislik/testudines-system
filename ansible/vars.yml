@@ -1,7 +1,11 @@
 ---
 # Proxmox Storage settings
-# Volitelné: ponechte zakomentované pro automatickou detekci aktivního úložiště (local-zfs -> local-lvm -> první aktivní)
-# proxmox_storage: "local-zfs"
+# Úložiště pro systémový disk OS (scsi0) a Cloud-Init (typicky SSD, např. local-lvm)
+proxmox_root_storage: "local-lvm"
+# Úložiště pro perzistentní zálohovaná data (scsi1 -> /mnt/data-sync)
+proxmox_sync_storage: "data-sync"
+# Úložiště pro dočasná nezálohovaná data (scsi2 -> /mnt/data-nosync)
+proxmox_nosync_storage: "data-nosync"
 
 # Debian 12 Bookworm Generic Cloud Image
 debian_cloud_image_url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"

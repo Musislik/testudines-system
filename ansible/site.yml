@@ -54,6 +54,13 @@
           }}
       when: (not vm_is_valid) and ((proxmox_storage is not defined) or (proxmox_storage == "auto"))
 
+    - name: Set effective storage pools for VM disks
+      set_fact:
+        proxmox_root_storage: "{{ proxmox_root_storage | default(proxmox_storage | default('local-lvm')) }}"
+        proxmox_sync_storage: "{{ proxmox_sync_storage | default(proxmox_storage | default('local-zfs')) }}"
+        proxmox_nosync_storage: "{{ proxmox_nosync_storage | default(proxmox_storage | default('local-zfs')) }}"
+      when: not vm_is_valid
+
     - name: Detect host default gateway
       shell: ip route show default | awk '{print $3}' | head -n1
       register: detected_gw
@@ -125,8 +132,8 @@
         --scsihw virtio-scsi-pci
       when: not vm_is_valid
 
-    - name: Import Cloud Image disk to Proxmox storage
-      command: "qm importdisk {{ vm_vmid }} {{ debian_cloud_image_path }} {{ proxmox_storage }}"
+    - name: Import Cloud Image disk to Proxmox root storage
+      command: "qm importdisk {{ vm_vmid }} {{ debian_cloud_image_path }} {{ proxmox_root_storage }}"
       when: not vm_is_valid
 
     - name: Retrieve imported disk identifier from VM config
@@ -146,7 +153,7 @@
     - name: Configure Cloud-Init drive and VM settings
       command: >
         qm set {{ vm_vmid }}
-        --ide2 {{ proxmox_storage }}:cloudinit
+        --ide2 {{ proxmox_root_storage }}:cloudinit
         --boot c --bootdisk scsi0
         --serial0 socket --vga serial0
         --agent enabled=1
@@ -158,11 +165,11 @@
       when: not vm_is_valid
 
     - name: Attach persistent data-sync disk (scsi1)
-      command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
+      command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_sync_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
       when: not vm_is_valid
 
     - name: Attach non-backed-up data-nosync disk (scsi2)
-      command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
+      command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_nosync_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
       when: not vm_is_valid
 
     - name: Start VM if newly created
@@ -305,6 +312,14 @@
       shell: curl -fsSL https://tailscale.com/install.sh | sh
       args:
         creates: /usr/bin/tailscale
+
+    - name: Enable IPv4 forwarding for Tailscale subnet router
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+        sysctl_file: /etc/sysctl.d/99-tailscale.conf
 
     - name: Authenticate Tailscale if auth key provided
       command: "tailscale up --authkey={{ tailscale_auth_key }} --hostname={{ tailscale_hostname }} {{ tailscale_extra_args }}"

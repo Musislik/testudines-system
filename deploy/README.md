@@ -43,8 +43,12 @@ Systém používá automatickou detekci přidělené Tailscale IP adresy pro str
    git clone https://github.com/musislik/testudines-system.git /opt/testudines-system
    ```
 3. Zkopírujte váš privátní soubor `vars.yml` do složky `/opt/testudines-system/deploy/`:
+   ```powershell
+   # Z Windows (PowerShell v deploy složce):
+   .\scp-deploy.ps1 -ProxmoxHost <proxmox-ip>
+   ```
+   Nebo ručně:
    ```bash
-   # Příklad přenosu z lokálního počítače:
    scp deploy/vars.yml root@<proxmox-ip>:/opt/testudines-system/deploy/vars.yml
    ```
 4. (Doporučeno) Spusťte validační skript pro ověření konfigurace:
