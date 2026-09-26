@@ -38,23 +38,25 @@ findmnt /mnt/data-nosync
 ```
 Zkontrolujte, zda 100GB oddíl odpovídá `/mnt/data-sync` a 250GB oddíl odpovídá `/mnt/data-nosync`.
 
-### Trvalé a bezpečné řešení (Filesystem Labels):
-Namísto nestabilních jmen zařízení `/dev/sdb` a `/dev/sdc` se doporučuje používat jmenovky souborového systému (Labels) nebo UUID:
+### Trvalé a bezpečné řešení (Disks Serial & Filesystem Labels):
+Namísto nestabilních jmen zařízení `/dev/sdb` a `/dev/sdc` používá architektura Testudines kombinaci virtuálních sériových čísel v QEMU a jmenovek souborového systému (Labels):
 
-1. **Nastavení jmenovek oddílů (pokud chybí):**
-   ```bash
-   # Zjistěte, který disk je skutečně 100GB (data-sync) a který 250GB (data-nosync)
-   e2label /dev/sdb data-sync
-   e2label /dev/sdc data-nosync
-   ```
+1. **Virtuální sériová čísla v Proxmoxu (`serial=...`):**
+   V konfiguraci VM jsou disky připojeny s explicitním sériovým číslem:
+   - `scsi1` -> `...,serial=data-sync`
+   - `scsi2` -> `...,serial=data-nosync`
+   Tím vznikají stabilní a neměnné cesty `/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_data-sync` a `...data-nosync`, které jádro nikdy nezamění se systémovým diskem OS.
 
-2. **Úprava `/etc/fstab`:**
-   Nahraďte statické cesty zápisem pomocí `LABEL=`:
+2. **Bezpečná detekce a formátování:**
+   Ansible playbook automaticky detekuje disky podle `/dev/disk/by-id/` a fallbacku `/dev/disk/by-path/` (SCSI LUN 1 a 2). Před jakýmkoliv zásahem ověřuje, že daný disk neobsahuje kořenový oddíl `/`, vyčistí staré tabulky oddílů a přiřadí správný `LABEL`.
+
+3. **Připojení v `/etc/fstab`:**
+   V `/etc/fstab` se disky připojují bezpečně pomocí `LABEL=`:
    ```fstab
    LABEL=data-sync    /mnt/data-sync    ext4    defaults,discard    0 2
    LABEL=data-nosync  /mnt/data-nosync  ext4    defaults,discard    0 2
    ```
-   *Poznámka:* Volba `discard` v fstab umožňuje jádru předávat TRIM požadavky dolů na Proxmox ZFS/LVM úložiště. Toto bezpečné formátování s jmenovkami a mount pomocí `LABEL=` je již plně automatizováno v Ansible playbooku `site.yml`.
+   *Poznámka:* Volba `discard` v fstab umožňuje jádru předávat TRIM požadavky dolů na Proxmox ZFS/LVM úložiště. Toto bezpečné přiřazení sériových čísel, formátování i mount pomocí `LABEL=` je plně automatizováno v Ansible playbooku `site.yml`.
 
 ---
 

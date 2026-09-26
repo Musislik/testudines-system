@@ -165,12 +165,40 @@
       when: not vm_is_valid
 
     - name: Attach persistent data-sync disk (scsi1)
-      command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_sync_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1"
+      command: "qm set {{ vm_vmid }} --scsi1 {{ proxmox_sync_storage }}:{{ vm_sync_disk_size | regex_replace('[^0-9]', '') }},discard=on,ssd=1,serial=data-sync"
       when: (not vm_is_valid) or (qm_config.stdout is defined and 'scsi1:' not in qm_config.stdout)
 
     - name: Attach non-backed-up data-nosync disk (scsi2)
-      command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_nosync_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1"
+      command: "qm set {{ vm_vmid }} --scsi2 {{ proxmox_nosync_storage }}:{{ vm_nosync_disk_size | regex_replace('[^0-9]', '') }},backup=0,discard=on,ssd=1,serial=data-nosync"
       when: (not vm_is_valid) or (qm_config.stdout is defined and 'scsi2:' not in qm_config.stdout)
+
+    - name: Ensure serial is configured on existing data-sync disk (scsi1)
+      shell: |
+        SCSI1_VOL=$(qm config {{ vm_vmid }} | awk '/^scsi1:/ {print $2}' | cut -d',' -f1)
+        if [ -n "$SCSI1_VOL" ]; then
+          qm set {{ vm_vmid }} --scsi1 "$SCSI1_VOL,discard=on,ssd=1,serial=data-sync"
+        fi
+      args:
+        executable: /bin/bash
+      when:
+        - vm_is_valid
+        - qm_config.stdout is defined
+        - "'scsi1:' in qm_config.stdout"
+        - "'serial=data-sync' not in qm_config.stdout"
+
+    - name: Ensure serial is configured on existing data-nosync disk (scsi2)
+      shell: |
+        SCSI2_VOL=$(qm config {{ vm_vmid }} | awk '/^scsi2:/ {print $2}' | cut -d',' -f1)
+        if [ -n "$SCSI2_VOL" ]; then
+          qm set {{ vm_vmid }} --scsi2 "$SCSI2_VOL,backup=0,discard=on,ssd=1,serial=data-nosync"
+        fi
+      args:
+        executable: /bin/bash
+      when:
+        - vm_is_valid
+        - qm_config.stdout is defined
+        - "'scsi2:' in qm_config.stdout"
+        - "'serial=data-nosync' not in qm_config.stdout"
 
     - name: Test if SSH port 22 is currently responsive on VM
       wait_for:
@@ -194,6 +222,8 @@
               (vm_dns is defined and ('nameserver: ' + vm_dns) not in qm_config.stdout) or
               ('cores: ' + (effective_vm_cores | string)) not in qm_config.stdout or
               ('memory: ' + (effective_vm_memory | string)) not in qm_config.stdout or
+              ('serial=data-sync' not in qm_config.stdout) or
+              ('serial=data-nosync' not in qm_config.stdout) or
               (ssh_quick_check is defined and (ssh_quick_check.failed | default(false)))
             )
           }}
@@ -307,10 +337,42 @@
         state: started
         enabled: yes
 
-    - name: Check and format /dev/sdb (data-sync) with ext4 and label
+    - name: Ensure persistent data-sync disk (100G) is formatted with ext4 and labeled
       shell: |
-        if ! blkid -t LABEL=data-sync; then
-          mkfs.ext4 -F -L data-sync /dev/sdb
+        set -e
+        DEV=""
+        for candidate in /dev/disk/by-id/*data-sync* /dev/disk/by-path/*scsi-0:0:1:0*; do
+          if [ -b "$candidate" ] && [[ ! "$candidate" =~ -part[0-9]+$ ]]; then
+            DEV="$candidate"
+            break
+          fi
+        done
+
+        if [ -z "$DEV" ]; then
+          DEV=$(blkid -t LABEL=data-sync -o device | head -n1)
+        fi
+
+        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+          echo "ERROR: Unable to locate data-sync disk (scsi1)!" >&2
+          exit 1
+        fi
+
+        # Critical safety check: Never touch root OS device
+        ROOT_DEV=$(findmnt -n -o SOURCE / | sed -E 's/[0-9]+$//')
+        REAL_DEV=$(readlink -f "$DEV" | sed -E 's/[0-9]+$//')
+        if [ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$REAL_DEV" ]; then
+          echo "CRITICAL SAFETY ERROR: Resolved data-sync device $DEV ($REAL_DEV) is the root OS disk!" >&2
+          exit 1
+        fi
+
+        if blkid -t LABEL=data-sync "$DEV" >/dev/null 2>&1; then
+          echo "Device $DEV already has LABEL=data-sync"
+        else
+          echo "Formatting $DEV with ext4 and LABEL=data-sync..."
+          umount "$DEV"* 2>/dev/null || true
+          swapoff "$DEV"* 2>/dev/null || true
+          wipefs -a "$DEV" || true
+          mkfs.ext4 -F -L data-sync "$DEV"
         fi
       args:
         executable: /bin/bash
@@ -323,10 +385,42 @@
         opts: defaults,discard
         state: mounted
 
-    - name: Check and format /dev/sdc (data-nosync) with ext4 and label
+    - name: Ensure non-backed-up data-nosync disk (250G) is formatted with ext4 and labeled
       shell: |
-        if ! blkid -t LABEL=data-nosync; then
-          mkfs.ext4 -F -L data-nosync /dev/sdc
+        set -e
+        DEV=""
+        for candidate in /dev/disk/by-id/*data-nosync* /dev/disk/by-path/*scsi-0:0:2:0*; do
+          if [ -b "$candidate" ] && [[ ! "$candidate" =~ -part[0-9]+$ ]]; then
+            DEV="$candidate"
+            break
+          fi
+        done
+
+        if [ -z "$DEV" ]; then
+          DEV=$(blkid -t LABEL=data-nosync -o device | head -n1)
+        fi
+
+        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+          echo "ERROR: Unable to locate data-nosync disk (scsi2)!" >&2
+          exit 1
+        fi
+
+        # Critical safety check: Never touch root OS device
+        ROOT_DEV=$(findmnt -n -o SOURCE / | sed -E 's/[0-9]+$//')
+        REAL_DEV=$(readlink -f "$DEV" | sed -E 's/[0-9]+$//')
+        if [ -n "$ROOT_DEV" ] && [ "$ROOT_DEV" = "$REAL_DEV" ]; then
+          echo "CRITICAL SAFETY ERROR: Resolved data-nosync device $DEV ($REAL_DEV) is the root OS disk!" >&2
+          exit 1
+        fi
+
+        if blkid -t LABEL=data-nosync "$DEV" >/dev/null 2>&1; then
+          echo "Device $DEV already has LABEL=data-nosync"
+        else
+          echo "Formatting $DEV with ext4 and LABEL=data-nosync..."
+          umount "$DEV"* 2>/dev/null || true
+          swapoff "$DEV"* 2>/dev/null || true
+          wipefs -a "$DEV" || true
+          mkfs.ext4 -F -L data-nosync "$DEV"
         fi
       args:
         executable: /bin/bash
