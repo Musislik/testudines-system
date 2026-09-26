@@ -22,6 +22,11 @@ vm_ip: "10.0.1.226"
 # vm_dns: "10.0.1.138"
 vm_user: "debian"
 vm_password: "YOUR-VM-PASSWORD"
+# Velikosti virtuálních disků (libovolně nastavitelné dle potřeb):
+# - vm_root_disk_size: Kořenový disk OS Debian 12 (scsi0), doporučeno min. 40G.
+# - vm_sync_disk_size: Persistentní zálohovaný disk (scsi1 -> /mnt/data-sync), obsahuje data Nextcloud, DB, herní světy.
+# - vm_nosync_disk_size: Dočasný nezálohovaný disk (scsi2 -> /mnt/data-nosync), obsahuje dočasná stahování JDownloaderu.
+# Tyto hodnoty playbook automaticky využívá pro alokaci v Proxmoxu i pro bezpečnou detekci kapacity disků ve VM.
 vm_root_disk_size: "40G"
 vm_sync_disk_size: "100G"
 vm_nosync_disk_size: "250G"

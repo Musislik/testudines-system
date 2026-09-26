@@ -337,23 +337,62 @@
         state: started
         enabled: yes
 
-    - name: Ensure persistent data-sync disk (100G) is formatted with ext4 and labeled
+    - name: Ensure persistent data-sync disk ({{ vm_sync_disk_size }}) is formatted with ext4 and labeled
       shell: |
         set -e
         DEV=""
-        for candidate in /dev/disk/by-id/*data-sync* /dev/disk/by-path/*scsi-0:0:1:0*; do
+
+        # 1. Search by persistent disk serial ID (Proxmox serial=data-sync)
+        for candidate in /dev/disk/by-id/*data-sync*; do
           if [ -b "$candidate" ] && [[ ! "$candidate" =~ -part[0-9]+$ ]]; then
             DEV="$candidate"
             break
           fi
         done
 
+        # 2. Search by SCSI Target ID via sysfs (VirtIO SCSI scsi1 is target 1)
         if [ -z "$DEV" ]; then
-          DEV=$(blkid -t LABEL=data-sync -o device | head -n1)
+          for dev_dir in /sys/block/sd* /sys/block/vd*; do
+            if [ -d "$dev_dir/device" ]; then
+              HCTL=$(basename "$(readlink -f "$dev_dir/device")" 2>/dev/null || true)
+              TARGET_ID=$(echo "$HCTL" | cut -d':' -f3)
+              if [ "$TARGET_ID" = "1" ]; then
+                CANDIDATE="/dev/$(basename "$dev_dir")"
+                if [ -b "$CANDIDATE" ]; then
+                  DEV="$CANDIDATE"
+                  break
+                fi
+              fi
+            fi
+          done
+        fi
+
+        # 3. Search by existing filesystem label
+        if [ -z "$DEV" ]; then
+          DEV=$(blkid -t LABEL=data-sync -o device 2>/dev/null | head -n1)
+        fi
+
+        # 4. Search by disk capacity dynamically derived from vm_sync_disk_size ({{ vm_sync_disk_size }})
+        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+          ROOT_DISK=$(findmnt -n -o SOURCE / | sed -E 's/[0-9]+$//')
+          TARGET_GB={{ vm_sync_disk_size | regex_replace('[^0-9]', '') | int }}
+          MIN_GB=$(( TARGET_GB * 80 / 100 ))
+          MAX_GB=$(( TARGET_GB * 120 / 100 + 2 ))
+          for d in $(lsblk -d -n -o NAME,TYPE | awk '$2=="disk" {print $1}'); do
+            CANDIDATE="/dev/$d"
+            if [ "$CANDIDATE" = "$ROOT_DISK" ]; then
+              continue
+            fi
+            SIZE_GB=$(lsblk -b -d -n -o SIZE "$CANDIDATE" 2>/dev/null | awk '{print int($1/1024/1024/1024)}')
+            if [ "$SIZE_GB" -ge "$MIN_GB" ] && [ "$SIZE_GB" -le "$MAX_GB" ]; then
+              DEV="$CANDIDATE"
+              break
+            fi
+          done
         fi
 
         if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
-          echo "ERROR: Unable to locate data-sync disk (scsi1)!" >&2
+          echo "ERROR: Unable to locate data-sync disk (scsi1, target 1, ~{{ vm_sync_disk_size }})!" >&2
           exit 1
         fi
 
@@ -385,23 +424,62 @@
         opts: defaults,discard
         state: mounted
 
-    - name: Ensure non-backed-up data-nosync disk (250G) is formatted with ext4 and labeled
+    - name: Ensure non-backed-up data-nosync disk ({{ vm_nosync_disk_size }}) is formatted with ext4 and labeled
       shell: |
         set -e
         DEV=""
-        for candidate in /dev/disk/by-id/*data-nosync* /dev/disk/by-path/*scsi-0:0:2:0*; do
+
+        # 1. Search by persistent disk serial ID (Proxmox serial=data-nosync)
+        for candidate in /dev/disk/by-id/*data-nosync*; do
           if [ -b "$candidate" ] && [[ ! "$candidate" =~ -part[0-9]+$ ]]; then
             DEV="$candidate"
             break
           fi
         done
 
+        # 2. Search by SCSI Target ID via sysfs (VirtIO SCSI scsi2 is target 2)
         if [ -z "$DEV" ]; then
-          DEV=$(blkid -t LABEL=data-nosync -o device | head -n1)
+          for dev_dir in /sys/block/sd* /sys/block/vd*; do
+            if [ -d "$dev_dir/device" ]; then
+              HCTL=$(basename "$(readlink -f "$dev_dir/device")" 2>/dev/null || true)
+              TARGET_ID=$(echo "$HCTL" | cut -d':' -f3)
+              if [ "$TARGET_ID" = "2" ]; then
+                CANDIDATE="/dev/$(basename "$dev_dir")"
+                if [ -b "$CANDIDATE" ]; then
+                  DEV="$CANDIDATE"
+                  break
+                fi
+              fi
+            fi
+          done
+        fi
+
+        # 3. Search by existing filesystem label
+        if [ -z "$DEV" ]; then
+          DEV=$(blkid -t LABEL=data-nosync -o device 2>/dev/null | head -n1)
+        fi
+
+        # 4. Search by disk capacity dynamically derived from vm_nosync_disk_size ({{ vm_nosync_disk_size }})
+        if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
+          ROOT_DISK=$(findmnt -n -o SOURCE / | sed -E 's/[0-9]+$//')
+          TARGET_GB={{ vm_nosync_disk_size | regex_replace('[^0-9]', '') | int }}
+          MIN_GB=$(( TARGET_GB * 80 / 100 ))
+          MAX_GB=$(( TARGET_GB * 120 / 100 + 2 ))
+          for d in $(lsblk -d -n -o NAME,TYPE | awk '$2=="disk" {print $1}'); do
+            CANDIDATE="/dev/$d"
+            if [ "$CANDIDATE" = "$ROOT_DISK" ]; then
+              continue
+            fi
+            SIZE_GB=$(lsblk -b -d -n -o SIZE "$CANDIDATE" 2>/dev/null | awk '{print int($1/1024/1024/1024)}')
+            if [ "$SIZE_GB" -ge "$MIN_GB" ] && [ "$SIZE_GB" -le "$MAX_GB" ]; then
+              DEV="$CANDIDATE"
+              break
+            fi
+          done
         fi
 
         if [ -z "$DEV" ] || [ ! -b "$DEV" ]; then
-          echo "ERROR: Unable to locate data-nosync disk (scsi2)!" >&2
+          echo "ERROR: Unable to locate data-nosync disk (scsi2, target 2, ~{{ vm_nosync_disk_size }})!" >&2
           exit 1
         fi
 
