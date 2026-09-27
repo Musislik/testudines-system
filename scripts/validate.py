@@ -141,7 +141,7 @@ def main():
             "proxmox_storage", "vm_gw", "vm_dns", "detected_storages",
             "detected_gw", "detected_dns", "imported_disk_vol",
             "host_cores", "effective_vm_cores", "host_mem_mb", "effective_vm_memory",
-            "dockge_compose"
+            "dockge_compose", "data_sync_dev", "data_nosync_dev"
         }
 
         undefined_vars = jinja_vars - set(ansible_vars.keys())
