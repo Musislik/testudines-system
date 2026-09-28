@@ -611,6 +611,8 @@
           TAILSCALE_IP={{ tailscale_ip }}
           BACKREST_CONFIG_DIR={{ backrest_config_dir }}
           BACKREST_DATA_DIR={{ backrest_data_dir }}
+          RCLONE_CONFIG_GDRIVE_CLIENT_ID='{{ rclone_gdrive_client_id | default("") }}'
+          RCLONE_CONFIG_GDRIVE_CLIENT_SECRET='{{ rclone_gdrive_client_secret | default("") }}'
           RCLONE_GDRIVE_TOKEN='{{ rclone_gdrive_token | default("") }}'
         mode: '0600'
 

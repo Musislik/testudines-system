@@ -43,6 +43,7 @@ tailscale_extra_args: "--accept-dns=true"
 system_repo_url: "https://github.com/USER/testudines-system.git"
 stacks_repo_url: "https://github.com/USER/testudines-stacks.git"
 stacks_repo_version: "master"
+stacks_repo_dir: "/opt/testudines-stacks"
 
 # Application Secrets & Environments
 # Nextcloud (nextcloud-core)
@@ -85,5 +86,7 @@ webclient_config_dir: "/mnt/data-sync/web-client"
 backrest_config_dir: "/mnt/data-sync/backrest-config"
 backrest_data_dir: "/mnt/data-sync/backrest-data"
 
-# Google Drive Rclone Token (Leave empty in template, set in deploy/vars.yml or Dockge .env)
+# Google Drive Rclone Credentials (Leave empty in template, set in deploy/vars.yml or Dockge .env)
+rclone_gdrive_client_id: ""
+rclone_gdrive_client_secret: ""
 rclone_gdrive_token: ""
