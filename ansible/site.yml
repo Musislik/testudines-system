@@ -598,6 +598,35 @@
           WEBCLIENT_CONFIG_DIR={{ webclient_config_dir }}
         mode: '0600'
 
+    - name: Ensure Backrest cache directory exists on host SSD
+      file:
+        path: /var/cache/backrest
+        state: directory
+        mode: '0755'
+
+    - name: Inject Backrest .env configuration
+      copy:
+        dest: /opt/stacks/backrest/.env
+        content: |
+          TAILSCALE_IP={{ tailscale_ip }}
+          BACKREST_CONFIG_DIR={{ backrest_config_dir }}
+          BACKREST_DATA_DIR={{ backrest_data_dir }}
+          RCLONE_GDRIVE_TOKEN='{{ rclone_gdrive_token | default("") }}'
+        mode: '0600'
+
+    - name: Ensure nextcloud database backup directory exists
+      file:
+        path: /mnt/data-sync/nextcloud-db-backup
+        state: directory
+        mode: '0750'
+
+    - name: Setup nightly automated Nextcloud MariaDB dump cron (02:50)
+      cron:
+        name: "Automated Nextcloud DB dump for Backrest"
+        minute: "50"
+        hour: "2"
+        job: 'docker exec db mariadb-dump --single-transaction --quick -u root -p"{{ nextcloud_mysql_root_password }}" {{ nextcloud_mysql_database }} > /mnt/data-sync/nextcloud-db-backup/nextcloud.sql 2>/dev/null'
+
     - name: Deploy Dockge compose file
       copy:
         dest: /opt/dockge/compose.yaml

@@ -67,7 +67,7 @@ Systém používá automatickou detekci přidělené Tailscale IP adresy pro str
 - Zkontroluje přítomnost privátního souboru `deploy/vars.yml`.
 - Spustí Ansible playbook s parametrem `-e @deploy/vars.yml`. **Sledovaný soubor `ansible/vars.yml` v Gitu se nepřepisuje**, takže pracovní strom repozitáře zůstává čistý a budoucí příkazy `git pull` nezpůsobí konflikt.
 - Vytvoří KVM virtuální stroj (Debian 12 Bookworm) s disky `scsi0` (OS), `scsi1` (data-sync pro zálohování) a `scsi2` (data-nosync bez zálohování).
-- Nainstaluje Docker CE, Tailscale, synchronizuje aplikační stacky z `testudines-stacks` a spustí všechny kontejnery.
+- Nainstaluje Docker CE, Tailscale, naklonuje plnohodnotný Git repozitář `testudines-stacks` do `/opt/testudines-stacks` (vytvoří symlink `/opt/stacks -> /opt/testudines-stacks/stacks`) a spustí všechny kontejnery.
 
 ---
 
@@ -83,4 +83,40 @@ Po dokončení instalace jsou služby dostupné následovně:
 | **Firefox Web-Client** | 3000 | Pouze Tailscale & Localhost | `http://<tailscale-ip>:3000` (nebo `localhost:3000` přes SSH tunel) |
 | **Minecraft Server** | 25565 | Všechna rozhraní | `testudines:25565` |
 | **OpenTTD Server** | 3979 | Všechna rozhraní (TCP/UDP) | `testudines:3979` |
+
+---
+
+## 4. Správa a obousměrná Git synchronizace stacků
+
+Aplikační stacky jsou na virtuálním stroji umístěny v trvalém Git repozitáři:
+* **Cesta k repozitáři na VM:** `/opt/testudines-stacks`
+* **Adresář stacků (pro Dockge):** `/opt/testudines-stacks/stacks/` (dostupný také přes symlink `/opt/stacks`)
+
+### A. Úprava konfigurace na PC -> Stažení na server
+1. Na svém počítači upravte `compose.yaml`, commitněte a pushněte do Gitu (`origin master`).
+2. Na serveru ve VM stáhněte změny:
+   ```bash
+   cd /opt/testudines-stacks
+   git pull
+   ```
+3. V Dockge (nebo přes `docker compose up -d`) aplikujte změny.
+
+### B. Úprava konfigurace na serveru (Dockge) -> Odeslání do Gitu
+1. Upravte stack v rozhraní Dockge nebo přímo v souborech pod `/opt/stacks/<stack>/compose.yaml`.
+2. Přihlaste se do VM přes SSH:
+   ```bash
+   cd /opt/testudines-stacks
+   git status
+   git add stacks/
+   git commit -m "Aktualizace stacku přes Dockge"
+   git push origin master
+   ```
+3. Na PC proveďte `git pull`.
+
+> [!TIP]
+> **Nastavení SSH klíče pro `git push` z VM:**
+> Na VM vygenerujte SSH klíč: `ssh-keygen -t ed25519 -C "testudines-vm"`.
+> Ve svém GitHub repozitáři `testudines-stacks` otevřete **Settings** -> **Deploy keys** -> **Add deploy key**, vložte veřejný klíč (`cat ~/.ssh/id_ed25519.pub`) a **zaškrtněte "Allow write access"**.
+> Následně v `/opt/testudines-stacks` nastavte SSH URL:
+> `git remote set-url origin git@github.com:musislik/testudines-stacks.git`
 

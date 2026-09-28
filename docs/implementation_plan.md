@@ -50,6 +50,8 @@ Using individual RAID 0 arrays to simulate direct disk access is highly discoura
   * **Gaming Servers:** Minecraft (port `25565`) and OpenTTD (port `3979`) run containerized and can be reached over Tailscale or via router port-forwarding for external players.
   * **Archived Stacks:** Legacy/redundant stacks (`hamachi`, `docker-tailscale`, `nginx-ingress`, `media-server`, `mopidy`, etc.) are retired to `/disabled` outside of Git.
 * **Docker & Compose Management:**
-  * Active compose stacks are maintained in `testudines-stacks/stacks/` and synchronized to `/opt/stacks` via `rsync -av --delete --exclude='.env'`.
+  * Active compose stacks are maintained in the Git repository cloned directly to `/opt/testudines-stacks` on the VM (with symlink `/opt/stacks -> /opt/testudines-stacks/stacks`).
+  * Supports full two-way Git synchronization (editing on PC -> push -> pull on server, or editing via Dockge UI / CLI -> commit & push back to remote from server).
+  * Secrets (`.env`) are excluded from Git via `.gitignore` and injected directly by Ansible during provisioning.
   * Shared Docker bridge network `proxy-tier` connects services.
-  * **Dockge** runs managing all stacks under `/opt/stacks`.
+  * **Dockge** runs managing all stacks under `/opt/testudines-stacks/stacks` (accessible on host via `/opt/stacks`).

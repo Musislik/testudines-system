@@ -82,3 +82,8 @@ jdownloader_output_dir: "/mnt/data-nosync/avdb"
 minecraft_data_dir: "/mnt/data-sync/minecraft"
 openttd_data_dir: "/mnt/data-sync/openttd-server"
 webclient_config_dir: "/mnt/data-sync/web-client"
+backrest_config_dir: "/mnt/data-sync/backrest-config"
+backrest_data_dir: "/mnt/data-sync/backrest-data"
+
+# Google Drive Rclone Token (Leave empty in template, set in deploy/vars.yml or Dockge .env)
+rclone_gdrive_token: ""
