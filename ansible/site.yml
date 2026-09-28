@@ -513,29 +513,81 @@
     - name: Ensure shared proxy-tier Docker network exists
       shell: docker network inspect proxy-tier >/dev/null 2>&1 || docker network create proxy-tier
 
-    - name: Ensure /opt/stacks and /opt/dockge directories exist
+    - name: Ensure /opt/dockge directory exists
       file:
-        path: "{{ item }}"
+        path: /opt/dockge
         state: directory
         mode: '0755'
-      loop:
-        - /opt/stacks
-        - /opt/dockge
 
-    - name: Clone Stacks repository to /tmp/stacks-repo
+    - name: Configure safe.directory for Stacks repository
+      command: git config --system --add safe.directory "{{ stacks_repo_dir }}"
+      changed_when: false
+
+    - name: Check if Stacks repository already exists
+      stat:
+        path: "{{ stacks_repo_dir }}/.git"
+      register: stacks_repo_git
+
+    - name: Clone Stacks repository to {{ stacks_repo_dir }}
       git:
         repo: "{{ stacks_repo_url }}"
-        dest: /tmp/stacks-repo
+        dest: "{{ stacks_repo_dir }}"
         version: "{{ stacks_repo_version }}"
-        force: yes
         accept_hostkey: yes
+      when: not stacks_repo_git.stat.exists
 
-    - name: Sync application stacks to /opt/stacks
-      command: rsync -av --delete --exclude='.env' --exclude='*.env' /tmp/stacks-repo/stacks/ /opt/stacks/
+    - name: Check for uncommitted changes in Stacks repository
+      command: git status --porcelain
+      args:
+        chdir: "{{ stacks_repo_dir }}"
+      register: stacks_git_status
+      changed_when: false
+      when: stacks_repo_git.stat.exists
+
+    - name: Pull latest changes for Stacks repository if working tree is clean
+      command: git pull origin {{ stacks_repo_version }}
+      args:
+        chdir: "{{ stacks_repo_dir }}"
+      when:
+        - stacks_repo_git.stat.exists
+        - stacks_git_status.stdout == ""
+      ignore_errors: yes
+
+    - name: Notify if local uncommitted changes exist in Stacks repository
+      debug:
+        msg: "Working tree in {{ stacks_repo_dir }} has uncommitted changes. Skipping git pull to preserve local modifications."
+      when:
+        - stacks_repo_git.stat.exists
+        - stacks_git_status.stdout != ""
+
+    - name: Check if legacy /opt/stacks directory exists
+      stat:
+        path: /opt/stacks
+      register: opt_stacks_stat
+
+    - name: Remove legacy non-symlink /opt/stacks directory
+      file:
+        path: /opt/stacks
+        state: absent
+      when: opt_stacks_stat.stat.exists and opt_stacks_stat.stat.isdir and not opt_stacks_stat.stat.islnk
+
+    - name: Ensure /opt/stacks symlink points to {{ stacks_repo_dir }}/stacks
+      file:
+        src: "{{ stacks_repo_dir }}/stacks"
+        dest: /opt/stacks
+        state: link
+        force: yes
+
+    - name: Ensure Stacks repository ownership is set to vm_user
+      file:
+        path: "{{ stacks_repo_dir }}"
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        recurse: yes
 
     - name: Inject Nextcloud .env configuration
       copy:
-        dest: /opt/stacks/nextcloud-core/.env
+        dest: "{{ stacks_repo_dir }}/stacks/nextcloud-core/.env"
         content: |
           MYSQL_ROOT_PASSWORD={{ nextcloud_mysql_root_password }}
           MYSQL_PASSWORD={{ nextcloud_mysql_password }}
@@ -555,14 +607,14 @@
 
     - name: Inject Cloudflare Tunnel .env configuration
       copy:
-        dest: /opt/stacks/cloudflared/.env
+        dest: "{{ stacks_repo_dir }}/stacks/cloudflared/.env"
         content: |
           TUNNEL_TOKEN={{ cloudflare_tunnel_token }}
         mode: '0600'
 
     - name: Inject JDownloader .env configuration
       copy:
-        dest: /opt/stacks/jdownloader/.env
+        dest: "{{ stacks_repo_dir }}/stacks/jdownloader/.env"
         content: |
           WEB_AUTHENTICATION_USERNAME={{ jdownloader_username }}
           WEB_AUTHENTICATION_PASSWORD={{ jdownloader_password }}
@@ -573,7 +625,7 @@
 
     - name: Inject Minecraft .env configuration
       copy:
-        dest: /opt/stacks/minecraft/.env
+        dest: "{{ stacks_repo_dir }}/stacks/minecraft/.env"
         content: |
           MOTD="{{ minecraft_motd }}"
           OPS="{{ minecraft_ops }}"
@@ -584,7 +636,7 @@
 
     - name: Inject OpenTTD .env configuration
       copy:
-        dest: /opt/stacks/openttd-server/.env
+        dest: "{{ stacks_repo_dir }}/stacks/openttd-server/.env"
         content: |
           OPENTTD_SERVER_NAME="{{ openttd_server_name }}"
           OPENTTD_DATA_DIR={{ openttd_data_dir }}
@@ -592,7 +644,7 @@
 
     - name: Inject Web-client .env configuration
       copy:
-        dest: /opt/stacks/web-client/.env
+        dest: "{{ stacks_repo_dir }}/stacks/web-client/.env"
         content: |
           TAILSCALE_IP={{ tailscale_ip }}
           WEBCLIENT_CONFIG_DIR={{ webclient_config_dir }}
@@ -606,7 +658,7 @@
 
     - name: Inject Backrest .env configuration
       copy:
-        dest: /opt/stacks/backrest/.env
+        dest: "{{ stacks_repo_dir }}/stacks/backrest/.env"
         content: |
           TAILSCALE_IP={{ tailscale_ip }}
           BACKREST_CONFIG_DIR={{ backrest_config_dir }}
@@ -645,7 +697,7 @@
               volumes:
                 - "/var/run/docker.sock:/var/run/docker.sock"
                 - "./data:/app/data"
-                - "/opt/stacks:/opt/stacks"
+                - "{{ stacks_repo_dir }}/stacks:/opt/stacks"
               environment:
                 - "DOCKGE_STACKS_DIR=/opt/stacks"
 
@@ -656,7 +708,7 @@
 
     - name: Find all active compose stacks
       find:
-        paths: /opt/stacks
+        paths: "{{ stacks_repo_dir }}/stacks"
         file_type: directory
       register: compose_dirs
 
