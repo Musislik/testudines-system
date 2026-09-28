@@ -77,6 +77,7 @@ openttd_server_name: "Testudines OpenTTD Server"
 # Storage Mount Paths (Mapped outside Git repositories)
 nextcloud_data_dir: "/mnt/data-sync/nextcloud"
 nextcloud_db_dir: "/mnt/data-sync/nextcloud-db"
+nextcloud_db_backup_dir: "/mnt/data-sync/nextcloud-db-backup"
 nextcloud_avdb_dir: "/mnt/data-nosync/avdb"
 jdownloader_config_dir: "/mnt/data-sync/jdownloader-config"
 jdownloader_output_dir: "/mnt/data-nosync/avdb"

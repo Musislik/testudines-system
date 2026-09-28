@@ -602,6 +602,7 @@
           NEXTCLOUD_OVERWRITE_CLI_URL=https://{{ tailscale_domain | default('localhost') }}
           NEXTCLOUD_DATA_DIR={{ nextcloud_data_dir }}
           NEXTCLOUD_DB_DIR={{ nextcloud_db_dir }}
+          NEXTCLOUD_DB_BACKUP_DIR={{ nextcloud_db_backup_dir }}
           NEXTCLOUD_AVDB_DIR={{ nextcloud_avdb_dir }}
         mode: '0600'
 
@@ -674,12 +675,6 @@
         state: directory
         mode: '0750'
 
-    - name: Setup nightly automated Nextcloud MariaDB dump cron (02:50)
-      cron:
-        name: "Automated Nextcloud DB dump for Backrest"
-        minute: "50"
-        hour: "2"
-        job: 'docker exec db mariadb-dump --single-transaction --quick -u root -p"{{ nextcloud_mysql_root_password }}" {{ nextcloud_mysql_database }} > /mnt/data-sync/nextcloud-db-backup/nextcloud.sql 2>/dev/null'
 
     - name: Deploy Dockge compose file
       copy:
