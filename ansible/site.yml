@@ -458,6 +458,7 @@
         - { path: "{{ openttd_data_dir }}", mode: '0777' }
         - { path: "{{ nextcloud_avdb_dir }}", mode: '0777' }
         - { path: "{{ webclient_config_dir }}", owner: '1000', group: '1000', mode: '0755' }
+        - { path: "{{ nextcloud_db_backup_dir }}", owner: '1005', group: '1005', mode: '0750' }
 
     - name: Install Docker CE via official script
       shell: curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh
@@ -673,6 +674,8 @@
       file:
         path: /mnt/data-sync/nextcloud-db-backup
         state: directory
+        owner: '1005'
+        group: '1005'
         mode: '0750'
 
 
