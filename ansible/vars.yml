@@ -91,3 +91,10 @@ backrest_data_dir: "/mnt/data-sync/backrest-data"
 rclone_gdrive_client_id: ""
 rclone_gdrive_client_secret: ""
 rclone_gdrive_token: ""
+
+# Nextcloud Push Notifications (Proxmox disk/ZFS/SMART alerts & Backrest failure alerts)
+nextcloud_notify_enabled: false
+nextcloud_notify_url: "https://testudines.YOUR-TAILSCALE-DOMAIN.ts.net" # Tailscale HTTPS doména Nextcloudu
+nextcloud_notify_user: "musislik"
+nextcloud_notify_token: "YOUR-NEXTCLOUD-APP-PASSWORD"
+

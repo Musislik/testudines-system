@@ -55,3 +55,16 @@ Using individual RAID 0 arrays to simulate direct disk access is highly discoura
   * Secrets (`.env`) are excluded from Git via `.gitignore` and injected directly by Ansible during provisioning.
   * Shared Docker bridge network `proxy-tier` connects services.
   * **Dockge** runs managing all stacks under `/opt/testudines-stacks/stacks` (accessible on host via `/opt/stacks`).
+
+## 5. Monitoring & Push Notifications Architecture (Nextcloud Admin Notifications)
+* **Design Philosophy:** Avoid fragile local mailers (Postfix port 25 blocks, spam filters) and avoid adding third-party messaging apps to the phone by leveraging the existing mobile **Nextcloud** client.
+* **Mechanism:** Nextcloud OCS REST API (`/ocs/v2.php/apps/admin_notifications/api/v1/notifications/{user}`).
+* **Proxmox Host Alerting:**
+  * **SMART (`smartd`):** Automated trigger via `/etc/smartmontools/run.d/60nextcloud` alerts on drive degradation, reallocated sectors, or drive failures.
+  * **ZFS (`zed`):** Automated trigger via `/etc/zfs/zed.d/zed-nextcloud.sh` alerts on degraded pools or checksum errors.
+  * **Proxmox VE 8 Webhook:** Target `nextcloud-push` configured in `/etc/pve/notifications.cfg`.
+  * **Direct Test & Script:** `/usr/local/bin/notify-nextcloud.sh` available on Proxmox host.
+* **Application / Backup Alerting (Backrest):**
+  * Backrest container receives notification credentials via `.env` from `deploy/vars.yml`.
+  * Hook script `/scripts/notify-nextcloud.sh` mounted into the container runs on `On Error` events.
+

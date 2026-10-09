@@ -120,3 +120,41 @@ Aplikační stacky jsou na virtuálním stroji umístěny v trvalém Git repozit
 > Následně v `/opt/testudines-stacks` nastavte SSH URL:
 > `git remote set-url origin git@github.com:musislik/testudines-stacks.git`
 
+---
+
+## 5. Nastavení Push Notifikací do mobilu (Nextcloud Admin Notifications)
+
+Systém podporuje přímé zasílání push notifikací na telefon přes oficiální mobilní aplikaci **Nextcloud** (bez nutnosti instalovat další aplikace nebo konfigurovat SMTP relay):
+
+### A. Příprava v Nextcloudu
+1. V Nextcloudu v administraci zkontrolujte/nainstalujte bezplatnou oficiální aplikaci **Admin Notifications** z App Store.
+2. V osobním nastavení (**Osobní nastavení -> Zabezpečení -> Zařízení a relace**) vygenerujte nové **Heslo k aplikaci** (např. s názvem `Proxmox-Alerts`).
+3. Doplňte údaje do vašeho privátního `deploy/vars.yml`:
+   ```yaml
+   nextcloud_notify_enabled: true
+   nextcloud_notify_url: "https://musislik.duckdns.org"
+   nextcloud_notify_user: "musislik"
+   nextcloud_notify_token: "VASE_HESLO_K_APLIKACI"
+   ```
+
+### B. Co systém automaticky chrání a monitoruje:
+- **Proxmox Host (SMART disk monitor):** Při detekci vadných/přemapovaných sektorů nebo selhání disku démon `smartd` přes hook `/etc/smartmontools/run.d/60nextcloud` okamžitě odešle push zprávu na mobil.
+- **Proxmox Host (ZFS monitor):** Pokud dojde k degradaci ZFS poolu nebo chybám kontrolního součtu (checksum), ZFS Event Daemon (ZED) přes `/etc/zfs/zed.d/zed-nextcloud.sh` odešle varování.
+- **Proxmox VE 8 Notifikace:** Automaticky je vytvořen webhook cíl v `/etc/pve/notifications.cfg` (cíl `nextcloud-push`).
+- **Backrest (Chyby záloh):** V rozhraní Backrest v plánu (Plan -> Hooks -> On Error) zadejte příkaz `/scripts/notify-nextcloud.sh`.
+
+### C. Jak notifikaci otestovat:
+1. **Z Proxmox hostitele:**
+   ```bash
+   /usr/local/bin/notify-nextcloud.sh "Test z Proxmoxu" "Zkouška doručení push notifikace na mobil."
+   ```
+2. **Z virtuálního stroje (VM):**
+   ```bash
+   /usr/local/bin/notify-nextcloud.sh "Test z VM" "Zkouška notifikace z virtuálního stroje."
+   ```
+3. **Z kontejneru Backrest:**
+   ```bash
+   docker exec backrest /scripts/notify-nextcloud.sh "Test z Backrestu" "Zkouška notifikace zálohy."
+   ```
+
+

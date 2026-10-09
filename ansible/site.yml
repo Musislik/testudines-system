@@ -248,6 +248,121 @@
         (vm_config_outdated | default(false)) or
         (qm_status.stdout is defined and 'status: stopped' in qm_status.stdout)
 
+    - name: Ensure /usr/local/bin exists on Proxmox host
+      file:
+        path: /usr/local/bin
+        state: directory
+        mode: '0755'
+
+    - name: Deploy Nextcloud notification script on Proxmox host
+      copy:
+        dest: /usr/local/bin/notify-nextcloud.sh
+        mode: '0755'
+        content: |
+          #!/usr/bin/env bash
+          # Nextcloud Push Notification sender for Proxmox VE Host Alerts
+          set -e
+
+          NC_URL="{{ nextcloud_notify_url if (nextcloud_notify_url | default('') | length > 0) else ('https://' + tailscale_domain | default('')) }}"
+          NC_USER="{{ nextcloud_notify_user | default('') }}"
+          NC_TOKEN="{{ nextcloud_notify_token | default('') }}"
+
+          if [ -z "$NC_USER" ] || [ -z "$NC_TOKEN" ]; then
+              echo "[PVE Notify] Chybí konfigurace Nextcloud notifikací."
+              exit 0
+          fi
+
+          TITLE="${1:-Proxmox Host Alert ($(hostname))}"
+          MESSAGE="${2:-Detekována událost na serveru Proxmox.}"
+
+          SENT=0
+          if [ -n "$NC_URL" ]; then
+              ENDPOINT="${NC_URL%/}/ocs/v2.php/apps/admin_notifications/api/v1/notifications/${NC_USER}"
+              if curl -s -k -L -m 5 -f -X POST "$ENDPOINT" \
+                  -u "${NC_USER}:${NC_TOKEN}" \
+                  -H "OCS-APIRequest: true" \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  --data-urlencode "shortMessage=${TITLE}" \
+                  --data-urlencode "longMessage=${MESSAGE}" >/dev/null 2>&1; then
+                  SENT=1
+              fi
+          fi
+
+          # Fallback: pokud Proxmox nemá přímý přístup (např. nemá Tailscale), odešleme notifikaci z VM přes QEMU Guest Agent
+          if [ "$SENT" -eq 0 ] && command -v qm >/dev/null 2>&1; then
+              if qm status {{ vm_vmid }} 2>/dev/null | grep -q "status: running"; then
+                  qm guest exec {{ vm_vmid }} -- /usr/local/bin/notify-nextcloud.sh "${TITLE}" "${MESSAGE}" >/dev/null 2>&1 || true
+              fi
+          fi
+
+    - name: Ensure SMART run.d directory exists on Proxmox host
+      file:
+        path: /etc/smartmontools/run.d
+        state: directory
+        mode: '0755'
+      when: nextcloud_notify_enabled | default(false) | bool
+
+    - name: Configure SMART disk failure monitoring hook on Proxmox host
+      copy:
+        dest: /etc/smartmontools/run.d/60nextcloud
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          # SMART error hook - executed automatically by smartd-runner on drive anomalies
+          if [ -x /usr/local/bin/notify-nextcloud.sh ]; then
+              DEV="${SMARTD_DEVICE:-Disk}"
+              MSG="${SMARTD_MESSAGE:-Detekována chyba disku nebo vadné sektory.}"
+              TYPE="${SMARTD_FAILTYPE:-warning}"
+              /usr/local/bin/notify-nextcloud.sh "Proxmox SMART Alert: ${DEV}" "${MSG} (Typ chyby: ${TYPE})"
+          fi
+      when: nextcloud_notify_enabled | default(false) | bool
+
+    - name: Ensure ZFS Event Daemon hook directory exists on Proxmox host
+      file:
+        path: /etc/zfs/zed.d
+        state: directory
+        mode: '0755'
+      when: nextcloud_notify_enabled | default(false) | bool
+
+    - name: Configure ZFS pool degradation hook on Proxmox host
+      copy:
+        dest: /etc/zfs/zed.d/zed-nextcloud.sh
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          # ZED notification hook for degraded pools or vdev errors
+          if [ -x /usr/local/bin/notify-nextcloud.sh ]; then
+              POOL="${ZEVENT_POOL:-ZFS Pool}"
+              SUBCLASS="${ZEVENT_SUBCLASS:-fault}"
+              case "$SUBCLASS" in
+                  *fault*|*degrade*|*error*|*fail*|*checksum*)
+                      /usr/local/bin/notify-nextcloud.sh "Proxmox ZFS Alert: ${POOL}" "ZFS událost: ${SUBCLASS} na fondu ${POOL}. Zkontrolujte zpool status."
+                      ;;
+              esac
+          fi
+      when: nextcloud_notify_enabled | default(false) | bool
+
+    - name: Check if /etc/pve/notifications.cfg exists on Proxmox host
+      stat:
+        path: /etc/pve/notifications.cfg
+      register: pve_notifications_cfg
+
+    - name: Configure Proxmox VE 8 Webhook notification target in /etc/pve/notifications.cfg
+      blockinfile:
+        path: /etc/pve/notifications.cfg
+        marker: "# {mark} ANSIBLE MANAGED NEXTCLOUD WEBHOOK"
+        block: |
+          webhook: nextcloud-push
+              url {{ nextcloud_notify_url if (nextcloud_notify_url | default('') | length > 0) else ('https://' + tailscale_domain | default('')) }}/ocs/v2.php/apps/admin_notifications/api/v1/notifications/{{ nextcloud_notify_user }}
+              method post
+              header OCS-APIRequest=true
+              header Content-Type=application/x-www-form-urlencoded
+              body shortMessage=PVE+Alert:+Proxmox+Notifikace&longMessage=Detekovano+upozorneni+na+uzlu+Proxmox+VE
+              comment Nextcloud push notification target
+      when:
+        - nextcloud_notify_enabled | default(false) | bool
+        - pve_notifications_cfg.stat.exists
+
     - name: Wait for SSH port 22 on VM
       wait_for:
         host: "{{ vm_ip }}"
@@ -668,7 +783,55 @@
           RCLONE_CONFIG_GDRIVE_CLIENT_ID='{{ rclone_gdrive_client_id | default("") }}'
           RCLONE_CONFIG_GDRIVE_CLIENT_SECRET='{{ rclone_gdrive_client_secret | default("") }}'
           RCLONE_GDRIVE_TOKEN='{{ rclone_gdrive_token | default("") }}'
+          NEXTCLOUD_NOTIFY_URL='{{ nextcloud_notify_url if (nextcloud_notify_url | default("") | length > 0) else ("https://" + tailscale_domain | default("")) }}'
+          NEXTCLOUD_NOTIFY_USER='{{ nextcloud_notify_user | default("") }}'
+          NEXTCLOUD_NOTIFY_TOKEN='{{ nextcloud_notify_token | default("") }}'
         mode: '0600'
+
+    - name: Deploy Nextcloud notification script inside Docker VM
+      copy:
+        dest: /usr/local/bin/notify-nextcloud.sh
+        mode: '0755'
+        content: |
+          #!/usr/bin/env bash
+          # Nextcloud Push Notification sender for VM Alerts
+          set -e
+
+          NC_URL="{{ nextcloud_notify_url if (nextcloud_notify_url | default('') | length > 0) else ('https://' + tailscale_domain | default('')) }}"
+          NC_USER="{{ nextcloud_notify_user | default('') }}"
+          NC_TOKEN="{{ nextcloud_notify_token | default('') }}"
+
+          if [ -z "$NC_USER" ] || [ -z "$NC_TOKEN" ]; then
+              echo "[VM Notify] Chybí konfigurace Nextcloud notifikací."
+              exit 0
+          fi
+
+          TITLE="${1:-Testudines VM Alert ($(hostname))}"
+          MESSAGE="${2:-Detekována událost uvnitř virtuálního stroje.}"
+
+          SENT=0
+          if [ -n "$NC_URL" ]; then
+              ENDPOINT="${NC_URL%/}/ocs/v2.php/apps/admin_notifications/api/v1/notifications/${NC_USER}"
+              if curl -s -k -L -m 5 -f -X POST "$ENDPOINT" \
+                  -u "${NC_USER}:${NC_TOKEN}" \
+                  -H "OCS-APIRequest: true" \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  --data-urlencode "shortMessage=${TITLE}" \
+                  --data-urlencode "longMessage=${MESSAGE}" >/dev/null 2>&1; then
+                  SENT=1
+              fi
+          fi
+
+          # Fallback: přímé volání uvnitř VM na localhost (127.0.0.1:80), kde Nextcloud naslouchá
+          if [ "$SENT" -eq 0 ]; then
+              LOCAL_ENDPOINT="http://127.0.0.1/ocs/v2.php/apps/admin_notifications/api/v1/notifications/${NC_USER}"
+              curl -s -k -L -m 5 -X POST "$LOCAL_ENDPOINT" \
+                  -u "${NC_USER}:${NC_TOKEN}" \
+                  -H "OCS-APIRequest: true" \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  --data-urlencode "shortMessage=${TITLE}" \
+                  --data-urlencode "longMessage=${MESSAGE}" >/dev/null 2>&1 || true
+          fi
 
     - name: Ensure nextcloud database backup directory exists
       file:
